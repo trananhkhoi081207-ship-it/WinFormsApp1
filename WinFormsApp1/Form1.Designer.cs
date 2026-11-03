@@ -10,6 +10,11 @@
             {
                 components.Dispose();
             }
+            if (disposing)
+            {
+                tabUsers?.Dispose();
+                tabLabs?.Dispose();
+            }
             base.Dispose(disposing);
         }
 
@@ -19,6 +24,7 @@
         {
             this.pnlSidebar = new System.Windows.Forms.Panel();
             this.lblUserInfo = new System.Windows.Forms.Label();
+            this.btnLogout = new System.Windows.Forms.Button();
             this.btnNavUsers = new System.Windows.Forms.Button();
             this.btnNavStats = new System.Windows.Forms.Button();
             this.btnNavHistory = new System.Windows.Forms.Button();
@@ -67,6 +73,8 @@
             this.lblReqPriority = new System.Windows.Forms.Label();
             this.cboReqEquipment = new System.Windows.Forms.ComboBox();
             this.lblReqEq = new System.Windows.Forms.Label();
+            this.lblReqTechnician = new System.Windows.Forms.Label();
+            this.cboReqTechnician = new System.Windows.Forms.ComboBox();
             this.tabHistory = new System.Windows.Forms.TabPage();
             this.dgvLogs = new System.Windows.Forms.DataGridView();
             this.pnlHisCard = new System.Windows.Forms.Panel();
@@ -132,6 +140,7 @@
             // 
             this.pnlSidebar.BackColor = System.Drawing.Color.FromArgb(30, 41, 59);
             this.pnlSidebar.Controls.Add(this.lblUserInfo);
+            this.pnlSidebar.Controls.Add(this.btnLogout);
             this.pnlSidebar.Controls.Add(this.btnNavUsers);
             this.pnlSidebar.Controls.Add(this.btnNavStats);
             this.pnlSidebar.Controls.Add(this.btnNavHistory);
@@ -203,7 +212,7 @@
             this.btnNavHistory.Location = new System.Drawing.Point(15, 250);
             this.btnNavHistory.Name = "btnNavHistory";
             this.btnNavHistory.Size = new System.Drawing.Size(200, 44);
-            this.btnNavHistory.Text = "  📋  Xử lý & Lịch sử";
+            this.btnNavHistory.Text = "  📋  Xử lý và lịch sử";
             this.btnNavHistory.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             // 
             // btnNavStats
@@ -236,11 +245,25 @@
             // 
             this.lblUserInfo.Font = new System.Drawing.Font("Segoe UI", 9.5F);
             this.lblUserInfo.ForeColor = System.Drawing.Color.FromArgb(148, 163, 184);
-            this.lblUserInfo.Location = new System.Drawing.Point(15, 610);
+            this.lblUserInfo.Anchor = System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left;
+            this.lblUserInfo.Location = new System.Drawing.Point(15, 565);
             this.lblUserInfo.Name = "lblUserInfo";
             this.lblUserInfo.Size = new System.Drawing.Size(200, 50);
             this.lblUserInfo.Text = "Đang đăng nhập:\r\nAdmin";
             // 
+            // btnLogout
+            //
+            this.btnLogout.Anchor = System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left;
+            this.btnLogout.BackColor = System.Drawing.Color.FromArgb(51, 65, 85);
+            this.btnLogout.FlatAppearance.BorderSize = 0;
+            this.btnLogout.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnLogout.Font = new System.Drawing.Font("Segoe UI Semibold", 10F, System.Drawing.FontStyle.Bold);
+            this.btnLogout.ForeColor = System.Drawing.Color.White;
+            this.btnLogout.Location = new System.Drawing.Point(15, 625);
+            this.btnLogout.Name = "btnLogout";
+            this.btnLogout.Size = new System.Drawing.Size(200, 36);
+            this.btnLogout.Text = "Đăng xuất";
+            //
             // pnlHeader
             // 
             this.pnlHeader.BackColor = System.Drawing.Color.White;
@@ -462,8 +485,10 @@
             this.pnlReqCard.Controls.Add(this.lblReqPriority);
             this.pnlReqCard.Controls.Add(this.cboReqEquipment);
             this.pnlReqCard.Controls.Add(this.lblReqEq);
+            this.pnlReqCard.Controls.Add(this.lblReqTechnician);
+            this.pnlReqCard.Controls.Add(this.cboReqTechnician);
             this.pnlReqCard.Location = new System.Drawing.Point(18, 15);
-            this.pnlReqCard.Size = new System.Drawing.Size(875, 110);
+            this.pnlReqCard.Size = new System.Drawing.Size(875, 155);
 
             this.lblReqEq.AutoSize = true;
             this.lblReqEq.Location = new System.Drawing.Point(20, 20);
@@ -494,8 +519,16 @@
             this.btnReqSubmit.Size = new System.Drawing.Size(165, 35);
             this.btnReqSubmit.Text = "🚀 Gửi Phiếu Bảo Trì";
 
-            this.dgvRequests.Location = new System.Drawing.Point(18, 140);
-            this.dgvRequests.Size = new System.Drawing.Size(875, 425);
+            this.lblReqTechnician.AutoSize = true;
+            this.lblReqTechnician.Location = new System.Drawing.Point(20, 112);
+            this.lblReqTechnician.Text = "Phân công kỹ thuật viên:";
+            this.cboReqTechnician.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cboReqTechnician.Location = new System.Drawing.Point(200, 109);
+            this.cboReqTechnician.Size = new System.Drawing.Size(465, 25);
+            this.cboReqTechnician.Name = "cboReqTechnician";
+
+            this.dgvRequests.Location = new System.Drawing.Point(18, 185);
+            this.dgvRequests.Size = new System.Drawing.Size(875, 380);
             // 
             // tabHistory (Tab 4: Xử lý & Lịch sử bảo trì)
             // 
@@ -756,6 +789,7 @@
         public System.Windows.Forms.Button btnNavStats;
         public System.Windows.Forms.Button btnNavUsers;
         public System.Windows.Forms.Label lblUserInfo;
+        public System.Windows.Forms.Button btnLogout;
         public System.Windows.Forms.Panel pnlHeader;
         public System.Windows.Forms.Label lblPageTitle;
         public System.Windows.Forms.Label lblRoleBadge;
@@ -797,6 +831,8 @@
         public System.Windows.Forms.Label lblReqPriority;
         public System.Windows.Forms.ComboBox cboReqEquipment;
         public System.Windows.Forms.Label lblReqEq;
+        public System.Windows.Forms.Label lblReqTechnician;
+        public System.Windows.Forms.ComboBox cboReqTechnician;
         public System.Windows.Forms.TabPage tabHistory;
         public System.Windows.Forms.DataGridView dgvLogs;
         public System.Windows.Forms.Panel pnlHisCard;

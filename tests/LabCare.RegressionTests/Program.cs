@@ -1,0 +1,163 @@
+using System.Data.SQLite;
+using LabMaintenanceApp;
+
+internal static class RegressionTests
+{
+    private static int checks;
+
+    [STAThread]
+    private static int Main()
+    {
+        string previousDirectory = Environment.CurrentDirectory;
+        string directory = Path.Combine(Path.GetTempPath(), "LabCare-tests-" + Guid.NewGuid());
+        Directory.CreateDirectory(directory);
+        Environment.CurrentDirectory = directory;
+        try
+        {
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            TestMigration();
+            TestAssignmentAndCompletion();
+            TestRoleScreensAndLogout();
+            Console.WriteLine($"PASS: {checks} regression checks");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex);
+            return 1;
+        }
+        finally
+        {
+            SQLiteConnection.ClearAllPools();
+            Environment.CurrentDirectory = previousDirectory;
+            Directory.Delete(directory, true);
+        }
+    }
+
+    private static void TestMigration()
+    {
+        // Tái tạo cấu trúc phiếu của bản cũ, trước khi có cột phân công.
+        DatabaseHelper.ExecuteNonQuery(@"
+            CREATE TABLE MaintenanceRequests (RequestID INTEGER PRIMARY KEY AUTOINCREMENT,
+                EquipmentID INTEGER NOT NULL, RequestedBy INTEGER NOT NULL, RequestDate TEXT NOT NULL,
+                IssueDescription TEXT NOT NULL, Priority TEXT DEFAULT 'Trung bình', Status TEXT DEFAULT 'Chờ xử lý');
+            INSERT INTO MaintenanceRequests (EquipmentID, RequestedBy, RequestDate, IssueDescription)
+                VALUES (1, 3, '2026-01-01', 'Legacy technician request');");
+        DatabaseHelper.InitializeDatabase();
+        DatabaseHelper.InitializeDatabase();
+        Check(Scalar("SELECT COUNT(*) FROM pragma_table_info('MaintenanceRequests') WHERE name='AssignedTechnicianID'") == 1, "Migration is idempotent");
+        Check(Scalar("SELECT AssignedTechnicianID FROM MaintenanceRequests WHERE RequestID=1") == 3, "Legacy technician request is assigned to its creator");
+        Check(Scalar("SELECT COUNT(*) FROM Users") == 3, "Existing data and seeded users survive migration");
+    }
+
+    private static void TestAssignmentAndCompletion()
+    {
+        DatabaseHelper.ExecuteNonQuery("INSERT INTO Users (Username, PasswordHash, FullName, Role) VALUES ('ktv_02', '123456', 'Kỹ thuật viên thứ hai', 'Technician')");
+        int otherTech = (int)Scalar("SELECT UserID FROM Users WHERE Username='ktv_02'");
+        int before = (int)Scalar("SELECT COUNT(*) FROM MaintenanceRequests");
+        Throws<ArgumentException>(() => MaintenanceService.CreateRequest(2, 1, "Missing assignment", "Thấp", null));
+        Throws<ArgumentException>(() => MaintenanceService.CreateRequest(2, 1, "Invalid assignment", "Thấp", 1));
+        Throws<ArgumentException>(() => MaintenanceService.CreateRequest(2, 1, "Invalid assignee", "Thấp", 9999));
+        Throws<ArgumentException>(() => MaintenanceService.CreateRequest(2, 9999, "Missing equipment", "Thấp", 3));
+        Throws<UnauthorizedAccessException>(() => MaintenanceService.CreateRequest(9999, 1, "Missing user", "Thấp", 3));
+        Check(Scalar("SELECT COUNT(*) FROM MaintenanceRequests") == before, "Rejected requests leave no rows");
+
+        MaintenanceService.CreateRequest(2, 1, "Manager request", "Khẩn cấp", otherTech);
+        int managerRequest = (int)Scalar("SELECT MAX(RequestID) FROM MaintenanceRequests");
+        Check(Scalar($"SELECT AssignedTechnicianID FROM MaintenanceRequests WHERE RequestID={managerRequest}") == otherTech, "Manager assignment persists");
+        Check(!PendingIds(3).Contains(managerRequest) && PendingIds(otherTech).Contains(managerRequest), "Each technician sees assigned work only");
+        Check(MaintenanceService.GetPendingRequests(2).Rows.Count == 0, "Manager cannot repair");
+        Throws<UnauthorizedAccessException>(() => MaintenanceService.CompleteRequest(2, managerRequest, "Manager repair", 0));
+        Throws<InvalidOperationException>(() => MaintenanceService.CompleteRequest(3, managerRequest, "Wrong technician", 0));
+        Throws<ArgumentException>(() => MaintenanceService.CompleteRequest(otherTech, managerRequest, "Invalid cost", -1));
+
+        MaintenanceService.CreateRequest(3, 1, "Technician request", "Trung bình", otherTech);
+        int ownRequest = (int)Scalar("SELECT MAX(RequestID) FROM MaintenanceRequests");
+        Check(Scalar($"SELECT AssignedTechnicianID FROM MaintenanceRequests WHERE RequestID={ownRequest}") == 3, "Technician is always self-assigned");
+
+        DatabaseHelper.ExecuteNonQuery("CREATE TRIGGER FailLog BEFORE INSERT ON MaintenanceLogs BEGIN SELECT RAISE(ABORT, 'Test rollback'); END");
+        Throws<SQLiteException>(() => MaintenanceService.CompleteRequest(3, ownRequest, "Failure", 0));
+        Check(Scalar($"SELECT COUNT(*) FROM MaintenanceRequests WHERE RequestID={ownRequest} AND Status='Chờ xử lý'") == 1, "Failed log rolls back completion");
+        DatabaseHelper.ExecuteNonQuery("DROP TRIGGER FailLog");
+
+        MaintenanceService.CompleteRequest(3, ownRequest, "Fixed", 100000);
+        Check(Scalar($"SELECT TechnicianID FROM MaintenanceLogs WHERE RequestID={ownRequest}") == 3, "History records the technician who repaired");
+        Check(Scalar("SELECT COUNT(*) FROM Equipments WHERE EquipmentID=1 AND Status='Đang bảo trì'") == 1, "Other pending requests keep equipment under maintenance");
+        Throws<InvalidOperationException>(() => MaintenanceService.CompleteRequest(3, ownRequest, "Duplicate", 0));
+        Check(Scalar($"SELECT COUNT(*) FROM MaintenanceLogs WHERE RequestID={ownRequest}") == 1, "Completion cannot be duplicated");
+
+        MaintenanceService.CompleteRequest(otherTech, managerRequest, "Fixed by assignee", 0);
+        MaintenanceService.CompleteRequest(3, 1, "Legacy fixed", 0);
+        Check(Scalar("SELECT COUNT(*) FROM Equipments WHERE EquipmentID=1 AND Status='Tốt'") == 1, "Last completed request restores equipment status");
+        int legacyUnassigned = (int)Scalar("SELECT RequestID FROM MaintenanceRequests WHERE AssignedTechnicianID IS NULL LIMIT 1");
+        MaintenanceService.CompleteRequest(3, legacyUnassigned, "Claim old unassigned request", 0);
+        Check(Scalar($"SELECT AssignedTechnicianID FROM MaintenanceRequests WHERE RequestID={legacyUnassigned}") == 3, "Legacy unassigned work can be claimed");
+        MaintenanceService.CreateRequest(1, 3, "Admin request", "Thấp", otherTech);
+        int adminRequest = (int)Scalar("SELECT MAX(RequestID) FROM MaintenanceRequests");
+        MaintenanceService.CompleteRequest(1, adminRequest, "Admin override", 0);
+        Check(Scalar($"SELECT COUNT(*) FROM MaintenanceLogs WHERE RequestID={adminRequest}") == 1, "Admin retains maintenance access");
+    }
+
+    private static void TestRoleScreensAndLogout()
+    {
+        foreach (var (id, role, count) in new[] { (3, "Technician", 4), (2, "LabManager", 5), (1, "Admin", 6) })
+        {
+            using var form = new Form1(id, role, role);
+            form.Show();
+            Application.DoEvents();
+            Check(form.tabMain.TabPages.Count == count, role + " has the expected tab count");
+            Check(form.tabMain.TabPages.Contains(form.tabUsers) == (role == "Admin"), role + " users tab access");
+            Check(form.dgvEquipments.ReadOnly, role + " equipment grid is read-only");
+            Check(form.dgvUsers.DataSource != null == (role == "Admin"), role + " users list is loaded only for admin");
+            if (role == "Technician")
+            {
+                Check(!form.tabMain.TabPages.Contains(form.tabLabs) && !form.btnNavLabs.Visible, "Technician has no labs tab or navigation");
+                Check(!form.pnlEqCard.Visible && !form.btnEqAdd.Enabled && !form.btnEqUpdate.Enabled && !form.btnEqDelete.Enabled, "Technician cannot edit equipment");
+                Check(!form.lblPageTitle.Text.Contains("Quản lý"), "Technician equipment title omits management");
+                Check(form.btnNavRequest.Top - form.btnNavEquipments.Top == form.btnNavHistory.Top - form.btnNavRequest.Top, "Technician menu has no gap");
+            }
+            form.btnNavRequest.PerformClick();
+            Check(form.tabMain.SelectedTab == form.tabRequests, role + " request navigation works after tab removal");
+            Check(form.cboReqTechnician.Visible == (role != "Technician"), role + " assignment selector visibility");
+            if (role != "Technician")
+            {
+                Check(form.cboReqTechnician.Items.Count == 2 && form.cboReqTechnician.SelectedIndex == -1, "Assignment needs an explicit technician choice");
+                Check(form.cboReqTechnician.Bottom < form.pnlReqCard.ClientSize.Height, "Assignment selector fits inside the request card");
+            }
+            form.tabMain.SelectedTab = form.tabHistory;
+            Check(form.lblPageTitle.Text == "Xử lý và lịch sử bảo trì", "Direct tab selection updates the header");
+            Check(form.pnlHisCard.Visible == (role != "LabManager"), role + " completion panel access");
+            form.btnNavStats.PerformClick();
+            Check(form.tabMain.SelectedTab == form.tabStats, role + " statistics navigation works");
+            form.btnLogout.PerformClick();
+            Check(form.LogoutRequested && !form.Visible, role + " logout closes the session");
+        }
+        using var nextLogin = new FrmLogin();
+        nextLogin.Shown += (_, _) => nextLogin.BeginInvoke(new Action(() => nextLogin.Close()));
+        Check(nextLogin.ShowDialog() != DialogResult.OK, "Login can reopen and cancel after all sessions");
+        using var closed = new Form1(3, "Technician", "Technician");
+        closed.Show();
+        closed.Close();
+        Check(!closed.LogoutRequested, "Window close exits rather than logging out");
+    }
+
+    private static HashSet<int> PendingIds(int userId) => MaintenanceService.GetPendingRequests(userId).Rows
+        .Cast<System.Data.DataRow>().Select(row => Convert.ToInt32(row["RequestID"])).ToHashSet();
+
+    private static long Scalar(string sql) => Convert.ToInt64(DatabaseHelper.GetDataTable(sql).Rows[0][0]);
+
+    private static void Check(bool condition, string description)
+    {
+        if (!condition) throw new Exception("FAIL: " + description);
+        checks++;
+        Console.WriteLine("PASS: " + description);
+    }
+
+    private static void Throws<T>(Action action) where T : Exception
+    {
+        try { action(); }
+        catch (T) { checks++; return; }
+        throw new Exception("Expected " + typeof(T).Name);
+    }
+}

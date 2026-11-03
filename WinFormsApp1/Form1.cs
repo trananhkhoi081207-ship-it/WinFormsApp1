@@ -13,6 +13,8 @@ namespace LabMaintenanceApp
         private string currentUserName = "Quản trị hệ thống";
         private string currentUserRole = "Admin";
 
+        public bool LogoutRequested { get; private set; }
+
         public Form1() : this(1, "Quản trị hệ thống", "Admin") { }
 
         public Form1(int userId, string fullName, string role)
@@ -25,6 +27,7 @@ namespace LabMaintenanceApp
             ApplySoftModernUI();
             BindEvents();
             LoadAllData();
+            UpdateNavigation();
         }
 
         // =====================================================================
@@ -35,9 +38,60 @@ namespace LabMaintenanceApp
             lblUserInfo.Text = $"👤 {currentUserName}\r\n🔑 Vai trò: {currentUserRole}";
             lblRoleBadge.Text = $"Quyền: {currentUserRole}";
 
-            if (currentUserRole != "Admin")
+            bool canManageUsers = RolePermissions.CanManageUsers(currentUserRole);
+            bool canManageEquipment = RolePermissions.CanManageEquipment(currentUserRole);
+            bool canManageLabs = RolePermissions.CanManageLabs(currentUserRole);
+            bool canAssign = RolePermissions.CanAssignTechnician(currentUserRole);
+            bool canComplete = RolePermissions.CanCompleteMaintenance(currentUserRole);
+
+            // Xóa cả TabPage để không thể mở bằng chuột hoặc Ctrl+Tab.
+            if (!canManageUsers) tabMain.TabPages.Remove(tabUsers);
+            if (!canManageLabs) tabMain.TabPages.Remove(tabLabs);
+            btnNavUsers.Visible = canManageUsers;
+            btnNavLabs.Visible = canManageLabs;
+            btnUserAdd.Enabled = btnUserDelete.Enabled = canManageUsers;
+            btnLabAdd.Enabled = btnLabDelete.Enabled = canManageLabs;
+            btnEqAdd.Enabled = btnEqUpdate.Enabled = btnEqDelete.Enabled = canManageEquipment;
+            pnlEqCard.Visible = canManageEquipment;
+            if (!canManageEquipment)
             {
-                btnNavUsers.Visible = false;
+                int reclaimedHeight = dgvEquipments.Top - pnlEqCard.Top;
+                dgvEquipments.Top = pnlEqCard.Top;
+                dgvEquipments.Height += reclaimedHeight;
+            }
+            pnlHisCard.Visible = canComplete;
+            btnHisComplete.Enabled = canComplete;
+            if (!canComplete)
+            {
+                int reclaimedHeight = dgvLogs.Top - pnlHisCard.Top;
+                dgvLogs.Top = pnlHisCard.Top;
+                dgvLogs.Height += reclaimedHeight;
+            }
+            lblReqTechnician.Visible = cboReqTechnician.Visible = canAssign;
+            if (!canAssign)
+            {
+                int compactHeight = Math.Max(btnReqSubmit.Bottom, txtReqIssue.Bottom) + cboReqEquipment.Top;
+                int reclaimedHeight = pnlReqCard.Height - compactHeight;
+                pnlReqCard.Height = compactHeight;
+                dgvRequests.Top -= reclaimedHeight;
+                dgvRequests.Height += reclaimedHeight;
+            }
+
+            tabEquipments.Text = "Thiết bị phòng Lab";
+            tabLabs.Text = "Phòng thí nghiệm";
+            tabRequests.Text = "Tạo phiếu bảo trì";
+            tabHistory.Text = "Xử lý và lịch sử";
+            tabStats.Text = "Thống kê báo cáo";
+            tabUsers.Text = "Người dùng";
+
+            int navTop = btnNavEquipments.Top;
+            int navSpacing = btnNavLabs.Top - btnNavEquipments.Top;
+            foreach (var button in new[] { btnNavEquipments, btnNavLabs, btnNavRequest, btnNavHistory, btnNavStats, btnNavUsers })
+            {
+                // Visible phụ thuộc cả Form cha (chưa Show), nên dùng quyền trực tiếp.
+                if ((button == btnNavLabs && !canManageLabs) || (button == btnNavUsers && !canManageUsers)) continue;
+                button.Top = navTop;
+                navTop += navSpacing;
             }
 
             cboEqStatus.SelectedIndex = 0;
@@ -58,7 +112,7 @@ namespace LabMaintenanceApp
             Button[] actionButtons = {
                 btnNavEquipments, btnNavLabs, btnNavRequest, btnNavHistory, btnNavStats, btnNavUsers,
                 btnEqAdd, btnEqUpdate, btnEqDelete, btnLabAdd, btnLabDelete,
-                btnReqSubmit, btnHisComplete, btnUserAdd, btnUserDelete
+                btnReqSubmit, btnHisComplete, btnUserAdd, btnUserDelete, btnLogout
             };
             foreach (var btn in actionButtons)
             {
@@ -113,19 +167,35 @@ namespace LabMaintenanceApp
             MakeRounded(dgv, 14);
         }
 
-        private void SwitchTab(int index, string title, Button activeBtn)
+        private void SwitchTab(TabPage page)
         {
-            tabMain.SelectedIndex = index;
-            lblPageTitle.Text = title;
+            if (!tabMain.TabPages.Contains(page)) return;
+            tabMain.SelectedTab = page;
+            UpdateNavigation();
+        }
 
-            Button[] navs = { btnNavEquipments, btnNavLabs, btnNavRequest, btnNavHistory, btnNavStats, btnNavUsers };
-            foreach (var b in navs)
+        private void UpdateNavigation()
+        {
+            var pages = new[] { tabEquipments, tabLabs, tabRequests, tabHistory, tabStats, tabUsers };
+            var navs = new[] { btnNavEquipments, btnNavLabs, btnNavRequest, btnNavHistory, btnNavStats, btnNavUsers };
+            var titles = new[] {
+                RolePermissions.CanManageEquipment(currentUserRole) ? "Quản lý thiết bị phòng Lab" : "Thiết bị phòng Lab",
+                "Quản lý danh mục phòng Lab", "Tạo phiếu yêu cầu bảo trì", "Xử lý và lịch sử bảo trì",
+                "Báo cáo và thống kê tổng hợp", "Quản lý tài khoản người dùng"
+            };
+            for (int i = 0; i < pages.Length; i++)
             {
-                b.BackColor = Color.FromArgb(30, 41, 59);
-                b.ForeColor = Color.FromArgb(203, 213, 225);
+                bool active = tabMain.SelectedTab == pages[i];
+                navs[i].BackColor = active ? Color.FromArgb(59, 130, 246) : Color.FromArgb(30, 41, 59);
+                navs[i].ForeColor = active ? Color.White : Color.FromArgb(203, 213, 225);
+                if (active) lblPageTitle.Text = titles[i];
             }
-            activeBtn.BackColor = Color.FromArgb(59, 130, 246);
-            activeBtn.ForeColor = Color.White;
+        }
+
+        private bool RequirePermission(bool allowed)
+        {
+            if (!allowed) MessageBox.Show("Bạn không có quyền thực hiện chức năng này.", "Phân quyền", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return allowed;
         }
 
         // =====================================================================
@@ -134,12 +204,18 @@ namespace LabMaintenanceApp
         private void BindEvents()
         {
             // Chuyển trang qua thanh Sidebar bên trái
-            btnNavEquipments.Click += (s, e) => SwitchTab(0, "Quản Lý Thiết Bị Phòng Lab", btnNavEquipments);
-            btnNavLabs.Click += (s, e) => SwitchTab(1, "Quản Lý Danh Mục Phòng Lab", btnNavLabs);
-            btnNavRequest.Click += (s, e) => SwitchTab(2, "Tạo Phiếu Yêu Cầu Bảo Trì", btnNavRequest);
-            btnNavHistory.Click += (s, e) => SwitchTab(3, "Xử Lý & Lịch Sử Bảo Trì", btnNavHistory);
-            btnNavStats.Click += (s, e) => SwitchTab(4, "Báo Cáo & Thống Kê Tổng Hợp", btnNavStats);
-            btnNavUsers.Click += (s, e) => SwitchTab(5, "Quản Lý Tài Khoản Người Dùng", btnNavUsers);
+            btnNavEquipments.Click += (s, e) => SwitchTab(tabEquipments);
+            btnNavLabs.Click += (s, e) => SwitchTab(tabLabs);
+            btnNavRequest.Click += (s, e) => SwitchTab(tabRequests);
+            btnNavHistory.Click += (s, e) => SwitchTab(tabHistory);
+            btnNavStats.Click += (s, e) => SwitchTab(tabStats);
+            btnNavUsers.Click += (s, e) => SwitchTab(tabUsers);
+            tabMain.SelectedIndexChanged += (s, e) => UpdateNavigation();
+            btnLogout.Click += (s, e) =>
+            {
+                LogoutRequested = true;
+                Close();
+            };
 
             // Click vào dòng trên bảng Thiết bị -> Đổ dữ liệu lên ô nhập để Sửa/Xóa
             dgvEquipments.SelectionChanged += (s, e) =>
@@ -156,6 +232,7 @@ namespace LabMaintenanceApp
             // 1. Thêm thiết bị
             btnEqAdd.Click += (s, e) =>
             {
+                if (!RequirePermission(RolePermissions.CanManageEquipment(currentUserRole))) return;
                 if (string.IsNullOrWhiteSpace(txtEqCode.Text) || string.IsNullOrWhiteSpace(txtEqName.Text) || cboEqLab.SelectedValue == null)
                 {
                     MessageBox.Show("Vui lòng nhập đủ Mã, Tên thiết bị và Phòng Lab!", "Thông báo");
@@ -179,6 +256,7 @@ namespace LabMaintenanceApp
             // 2. Sửa thiết bị
             btnEqUpdate.Click += (s, e) =>
             {
+                if (!RequirePermission(RolePermissions.CanManageEquipment(currentUserRole))) return;
                 if (dgvEquipments.CurrentRow == null) return;
                 int id = Convert.ToInt32(dgvEquipments.CurrentRow.Cells["EquipmentID"].Value);
                 DatabaseHelper.ExecuteNonQuery(
@@ -195,6 +273,7 @@ namespace LabMaintenanceApp
             // 3. Xóa thiết bị
             btnEqDelete.Click += (s, e) =>
             {
+                if (!RequirePermission(RolePermissions.CanManageEquipment(currentUserRole))) return;
                 if (dgvEquipments.CurrentRow == null) return;
                 int id = Convert.ToInt32(dgvEquipments.CurrentRow.Cells["EquipmentID"].Value);
                 DatabaseHelper.ExecuteNonQuery("DELETE FROM Equipments WHERE EquipmentID=@id", new SQLiteParameter("@id", id));
@@ -204,6 +283,7 @@ namespace LabMaintenanceApp
             // 4. Thêm & Xóa Phòng Lab
             btnLabAdd.Click += (s, e) =>
             {
+                if (!RequirePermission(RolePermissions.CanManageLabs(currentUserRole))) return;
                 if (string.IsNullOrWhiteSpace(txtLabCode.Text) || string.IsNullOrWhiteSpace(txtLabName.Text)) return;
                 try
                 {
@@ -220,6 +300,7 @@ namespace LabMaintenanceApp
 
             btnLabDelete.Click += (s, e) =>
             {
+                if (!RequirePermission(RolePermissions.CanManageLabs(currentUserRole))) return;
                 if (dgvLabs.CurrentRow == null) return;
                 int id = Convert.ToInt32(dgvLabs.CurrentRow.Cells["LabID"].Value);
                 DatabaseHelper.ExecuteNonQuery("DELETE FROM Labs WHERE LabID=@id", new SQLiteParameter("@id", id));
@@ -234,49 +315,46 @@ namespace LabMaintenanceApp
                     MessageBox.Show("Vui lòng chọn thiết bị và nhập mô tả sự cố!");
                     return;
                 }
-                int eqId = Convert.ToInt32(cboReqEquipment.SelectedValue);
-                DatabaseHelper.ExecuteNonQuery(
-                    "INSERT INTO MaintenanceRequests (EquipmentID, RequestedBy, RequestDate, IssueDescription, Priority, Status) VALUES (@eq, @u, @d, @iss, @p, 'Chờ xử lý')",
-                    new SQLiteParameter("@eq", eqId),
-                    new SQLiteParameter("@u", currentUserId),
-                    new SQLiteParameter("@d", DateTime.Now.ToString("yyyy-MM-dd HH:mm")),
-                    new SQLiteParameter("@iss", txtReqIssue.Text.Trim()),
-                    new SQLiteParameter("@p", cboReqPriority.Text));
-                DatabaseHelper.ExecuteNonQuery("UPDATE Equipments SET Status='Đang bảo trì' WHERE EquipmentID=@eq", new SQLiteParameter("@eq", eqId));
-                txtReqIssue.Clear();
-                MessageBox.Show("Đã tạo phiếu bảo trì thành công!");
-                LoadAllData();
+                try
+                {
+                    int? technicianId = cboReqTechnician.SelectedValue == null ? null : Convert.ToInt32(cboReqTechnician.SelectedValue);
+                    MaintenanceService.CreateRequest(currentUserId, Convert.ToInt32(cboReqEquipment.SelectedValue),
+                        txtReqIssue.Text, cboReqPriority.Text, technicianId);
+                    txtReqIssue.Clear();
+                    LoadAllData();
+                    MessageBox.Show("Đã tạo phiếu và phân công kỹ thuật viên thành công!");
+                }
+                catch (Exception ex) { MessageBox.Show(ex.Message, "Không thể tạo phiếu", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
             };
 
             // 6. Hoàn tất bảo trì
             btnHisComplete.Click += (s, e) =>
             {
+                if (!RequirePermission(RolePermissions.CanCompleteMaintenance(currentUserRole))) return;
                 if (cboPendingRequests.SelectedValue == null || string.IsNullOrWhiteSpace(txtLogAction.Text))
                 {
                     MessageBox.Show("Vui lòng chọn phiếu chờ và nhập kết quả sửa chữa!");
                     return;
                 }
-                int reqId = Convert.ToInt32(cboPendingRequests.SelectedValue);
-                double.TryParse(txtLogCost.Text.Trim(), out double cost);
-
-                DatabaseHelper.ExecuteNonQuery(
-                    "INSERT INTO MaintenanceLogs (RequestID, TechnicianID, CompletedDate, ActionTaken, Cost) VALUES (@r, @t, @d, @act, @c)",
-                    new SQLiteParameter("@r", reqId),
-                    new SQLiteParameter("@t", currentUserId),
-                    new SQLiteParameter("@d", DateTime.Now.ToString("yyyy-MM-dd HH:mm")),
-                    new SQLiteParameter("@act", txtLogAction.Text.Trim()),
-                    new SQLiteParameter("@c", cost));
-                DatabaseHelper.ExecuteNonQuery("UPDATE MaintenanceRequests SET Status='Hoàn thành' WHERE RequestID=@r", new SQLiteParameter("@r", reqId));
-                DatabaseHelper.ExecuteNonQuery("UPDATE Equipments SET Status='Tốt' WHERE EquipmentID = (SELECT EquipmentID FROM MaintenanceRequests WHERE RequestID=@r)", new SQLiteParameter("@r", reqId));
-
-                txtLogAction.Clear(); txtLogCost.Text = "0";
-                MessageBox.Show("Đã hoàn tất bảo trì, thiết bị đã hoạt động tốt trở lại!");
-                LoadAllData();
+                if (!double.TryParse(txtLogCost.Text.Trim(), out double cost) || double.IsNaN(cost) || double.IsInfinity(cost) || cost < 0)
+                {
+                    MessageBox.Show("Chi phí phải là số không âm.");
+                    return;
+                }
+                try
+                {
+                    MaintenanceService.CompleteRequest(currentUserId, Convert.ToInt32(cboPendingRequests.SelectedValue), txtLogAction.Text, cost);
+                    txtLogAction.Clear(); txtLogCost.Text = "0";
+                    LoadAllData();
+                    MessageBox.Show("Đã ghi nhận kết quả và hoàn tất phiếu bảo trì!");
+                }
+                catch (Exception ex) { MessageBox.Show(ex.Message, "Không thể hoàn tất phiếu", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
             };
 
             // 7. Thêm & Xóa Người dùng
             btnUserAdd.Click += (s, e) =>
             {
+                if (!RequirePermission(RolePermissions.CanManageUsers(currentUserRole))) return;
                 if (string.IsNullOrWhiteSpace(txtNewUser.Text) || string.IsNullOrWhiteSpace(txtNewPass.Text)) return;
                 try
                 {
@@ -294,9 +372,12 @@ namespace LabMaintenanceApp
 
             btnUserDelete.Click += (s, e) =>
             {
+                if (!RequirePermission(RolePermissions.CanManageUsers(currentUserRole))) return;
                 if (dgvUsers.CurrentRow == null) return;
                 int id = Convert.ToInt32(dgvUsers.CurrentRow.Cells["UserID"].Value);
-                if (id == 1) { MessageBox.Show("Không thể xóa Admin mặc định!"); return; }
+                if (id == 1 || id == currentUserId) { MessageBox.Show("Không thể xóa Admin mặc định hoặc tài khoản đang đăng nhập!"); return; }
+                var assigned = DatabaseHelper.GetDataTable("SELECT COUNT(*) FROM MaintenanceRequests WHERE AssignedTechnicianID=@id AND Status='Chờ xử lý'", new SQLiteParameter("@id", id));
+                if (Convert.ToInt64(assigned.Rows[0][0]) > 0) { MessageBox.Show("Không thể xóa kỹ thuật viên đang được phân công phiếu chưa hoàn thành!"); return; }
                 DatabaseHelper.ExecuteNonQuery("DELETE FROM Users WHERE UserID=@id", new SQLiteParameter("@id", id));
                 LoadAllData();
             };
@@ -305,13 +386,26 @@ namespace LabMaintenanceApp
         private void LoadAllData()
         {
             var dtLabs = DatabaseHelper.GetDataTable("SELECT LabID, LabCode AS 'Mã Phòng', LabName AS 'Tên Phòng Lab', Location AS 'Vị trí', Status AS 'Trạng thái' FROM Labs");
-            dgvLabs.DataSource = dtLabs;
-            cboEqLab.DataSource = dtLabs.Copy();
-            cboEqLab.DisplayMember = "Tên Phòng Lab";
-            cboEqLab.ValueMember = "LabID";
+            if (RolePermissions.CanManageLabs(currentUserRole))
+            {
+                dgvLabs.DataSource = dtLabs;
+                cboEqLab.DisplayMember = "Tên Phòng Lab";
+                cboEqLab.ValueMember = "LabID";
+                cboEqLab.DataSource = dtLabs.Copy();
+            }
+
+            if (RolePermissions.CanAssignTechnician(currentUserRole))
+            {
+                var technicians = DatabaseHelper.GetDataTable("SELECT UserID, FullName || ' (' || Username || ')' AS DisplayName FROM Users WHERE Role='Technician' ORDER BY FullName, UserID");
+                cboReqTechnician.DisplayMember = "DisplayName";
+                cboReqTechnician.ValueMember = "UserID";
+                cboReqTechnician.DataSource = technicians;
+                cboReqTechnician.SelectedIndex = -1;
+            }
+            btnReqSubmit.Enabled = RolePermissions.CanCreateRequest(currentUserRole);
 
             var dtEq = DatabaseHelper.GetDataTable(@"
-                SELECT e.EquipmentID, e.EquipmentCode AS 'Mã TB', e.EquipmentName AS 'Tên Thiết Bị', 
+                SELECT e.EquipmentID, e.EquipmentCode AS 'Mã TB', e.EquipmentName AS 'Tên Thiết Bị',
                        e.Category AS 'Danh mục', l.LabName AS 'Phòng Lab', e.Status AS 'Trạng thái'
                 FROM Equipments e LEFT JOIN Labs l ON e.LabID = l.LabID");
             dgvEquipments.DataSource = dtEq;
@@ -320,20 +414,17 @@ namespace LabMaintenanceApp
             cboReqEquipment.ValueMember = "EquipmentID";
 
             dgvRequests.DataSource = DatabaseHelper.GetDataTable(@"
-                SELECT r.RequestID, e.EquipmentCode || ' - ' || e.EquipmentName AS 'Thiết bị', 
-                       u.FullName AS 'Người báo', r.RequestDate AS 'Ngày tạo', 
+                SELECT r.RequestID, e.EquipmentCode || ' - ' || e.EquipmentName AS 'Thiết bị',
+                       u.FullName AS 'Người báo', COALESCE(t.FullName, 'Chưa phân công') AS 'Kỹ thuật viên phụ trách', r.RequestDate AS 'Ngày tạo',
                        r.IssueDescription AS 'Mô tả lỗi', r.Priority AS 'Ưu tiên', r.Status AS 'Trạng thái'
                 FROM MaintenanceRequests r
                 JOIN Equipments e ON r.EquipmentID = e.EquipmentID
-                JOIN Users u ON r.RequestedBy = u.UserID ORDER BY r.RequestID DESC");
+                JOIN Users u ON r.RequestedBy = u.UserID
+                LEFT JOIN Users t ON r.AssignedTechnicianID = t.UserID ORDER BY r.RequestID DESC");
 
-            var dtPending = DatabaseHelper.GetDataTable(@"
-                SELECT r.RequestID, ('[Phiếu #' || r.RequestID || '] ' || e.EquipmentName || ' - ' || r.IssueDescription) AS DisplayText
-                FROM MaintenanceRequests r JOIN Equipments e ON r.EquipmentID = e.EquipmentID
-                WHERE r.Status = 'Chờ xử lý'");
-            cboPendingRequests.DataSource = dtPending;
             cboPendingRequests.DisplayMember = "DisplayText";
             cboPendingRequests.ValueMember = "RequestID";
+            cboPendingRequests.DataSource = MaintenanceService.GetPendingRequests(currentUserId);
 
             dgvLogs.DataSource = DatabaseHelper.GetDataTable(@"
                 SELECT l.LogID AS 'Mã LS', e.EquipmentName AS 'Thiết bị', u.FullName AS 'Kỹ thuật viên',
@@ -354,7 +445,8 @@ namespace LabMaintenanceApp
             lblCardBrokenVal.Text = $"{brokenEq} Thiết bị";
             lblCardCostVal.Text = $"{totalCost:N0} VNĐ";
 
-            dgvUsers.DataSource = DatabaseHelper.GetDataTable("SELECT UserID, Username AS 'Tài khoản', FullName AS 'Họ và tên', Role AS 'Vai trò' FROM Users");
+            if (RolePermissions.CanManageUsers(currentUserRole))
+                dgvUsers.DataSource = DatabaseHelper.GetDataTable("SELECT UserID, Username AS 'Tài khoản', FullName AS 'Họ và tên', Role AS 'Vai trò' FROM Users");
         }
     }
 }

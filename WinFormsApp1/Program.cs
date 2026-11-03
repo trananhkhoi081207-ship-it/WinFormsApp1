@@ -20,11 +20,16 @@ namespace LabMaintenanceApp
 
             DatabaseHelper.InitializeDatabase();
 
-            using (FrmLogin login = new FrmLogin())
+            while (true)
             {
-                if (login.ShowDialog() == DialogResult.OK)
+                using (FrmLogin login = new FrmLogin())
                 {
-                    Application.Run(new Form1(login.LoggedInUserId, login.LoggedInFullName, login.LoggedInRole));
+                    if (login.ShowDialog() != DialogResult.OK) break;
+                    using (var main = new Form1(login.LoggedInUserId, login.LoggedInFullName, login.LoggedInRole))
+                    {
+                        Application.Run(main);
+                        if (!main.LogoutRequested) break;
+                    }
                 }
             }
         }
@@ -35,8 +40,8 @@ namespace LabMaintenanceApp
     {
         private TextBox txtUser, txtPass;
         public int LoggedInUserId { get; private set; }
-        public string LoggedInFullName { get; private set; }
-        public string LoggedInRole { get; private set; }
+        public string LoggedInFullName { get; private set; } = string.Empty;
+        public string LoggedInRole { get; private set; } = string.Empty;
 
         public FrmLogin()
         {
@@ -67,8 +72,8 @@ namespace LabMaintenanceApp
                 if (dt.Rows.Count > 0)
                 {
                     LoggedInUserId = Convert.ToInt32(dt.Rows[0]["UserID"]);
-                    LoggedInFullName = dt.Rows[0]["FullName"].ToString();
-                    LoggedInRole = dt.Rows[0]["Role"].ToString();
+                    LoggedInFullName = dt.Rows[0]["FullName"].ToString() ?? string.Empty;
+                    LoggedInRole = dt.Rows[0]["Role"].ToString() ?? string.Empty;
                     this.DialogResult = DialogResult.OK;
                 }
                 else MessageBox.Show("Sai tài khoản hoặc mật khẩu!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -100,6 +105,28 @@ namespace LabMaintenanceApp
                 CREATE TABLE IF NOT EXISTS MaintenanceRequests (RequestID INTEGER PRIMARY KEY AUTOINCREMENT, EquipmentID INTEGER NOT NULL, RequestedBy INTEGER NOT NULL, RequestDate TEXT NOT NULL, IssueDescription TEXT NOT NULL, Priority TEXT DEFAULT 'Trung bình', Status TEXT DEFAULT 'Chờ xử lý');
                 CREATE TABLE IF NOT EXISTS MaintenanceLogs (LogID INTEGER PRIMARY KEY AUTOINCREMENT, RequestID INTEGER NOT NULL, TechnicianID INTEGER NOT NULL, CompletedDate TEXT, ActionTaken TEXT NOT NULL, Cost REAL DEFAULT 0);";
                 using (var cmd = new SQLiteCommand(sql, conn)) cmd.ExecuteNonQuery();
+
+                // Nâng cấp CSDL cũ tại chỗ, không xóa dữ liệu người dùng.
+                bool hasAssignedTechnician = false;
+                using (var cmd = new SQLiteCommand("PRAGMA table_info(MaintenanceRequests)", conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                        if (reader["name"].ToString() == "AssignedTechnicianID") hasAssignedTechnician = true;
+                }
+                if (!hasAssignedTechnician)
+                {
+                    using (var cmd = new SQLiteCommand(
+                        "ALTER TABLE MaintenanceRequests ADD COLUMN AssignedTechnicianID INTEGER REFERENCES Users(UserID)", conn))
+                        cmd.ExecuteNonQuery();
+                }
+
+                // Phiếu cũ do kỹ thuật viên tạo được giao lại cho đúng người tạo.
+                using (var cmd = new SQLiteCommand(@"
+                    UPDATE MaintenanceRequests SET AssignedTechnicianID = RequestedBy
+                    WHERE AssignedTechnicianID IS NULL
+                      AND RequestedBy IN (SELECT UserID FROM Users WHERE Role = 'Technician');", conn))
+                    cmd.ExecuteNonQuery();
 
                 using (var checkCmd = new SQLiteCommand("SELECT COUNT(*) FROM Users", conn))
                 {
