@@ -40,6 +40,14 @@ internal static class RegressionTests
     {
         // Tái tạo cấu trúc phiếu của bản cũ, trước khi có cột phân công.
         DatabaseHelper.ExecuteNonQuery(@"
+            CREATE TABLE Users (UserID INTEGER PRIMARY KEY AUTOINCREMENT, Username TEXT NOT NULL UNIQUE,
+                PasswordHash TEXT NOT NULL, FullName TEXT NOT NULL, Role TEXT NOT NULL);
+            CREATE TABLE Labs (LabID INTEGER PRIMARY KEY AUTOINCREMENT, LabCode TEXT NOT NULL UNIQUE,
+                LabName TEXT NOT NULL, Location TEXT, Status TEXT DEFAULT 'Hoạt động');
+            CREATE TABLE Equipments (EquipmentID INTEGER PRIMARY KEY AUTOINCREMENT, EquipmentCode TEXT NOT NULL UNIQUE,
+                EquipmentName TEXT NOT NULL, Category TEXT, LabID INTEGER NOT NULL, Status TEXT DEFAULT 'Tốt');
+            CREATE TABLE MaintenanceLogs (LogID INTEGER PRIMARY KEY AUTOINCREMENT, RequestID INTEGER NOT NULL,
+                TechnicianID INTEGER NOT NULL, CompletedDate TEXT, ActionTaken TEXT NOT NULL, Cost REAL DEFAULT 0);
             CREATE TABLE MaintenanceRequests (RequestID INTEGER PRIMARY KEY AUTOINCREMENT,
                 EquipmentID INTEGER NOT NULL, RequestedBy INTEGER NOT NULL, RequestDate TEXT NOT NULL,
                 IssueDescription TEXT NOT NULL, Priority TEXT DEFAULT 'Trung bình', Status TEXT DEFAULT 'Chờ xử lý');
@@ -50,6 +58,9 @@ internal static class RegressionTests
         Check(Scalar("SELECT COUNT(*) FROM pragma_table_info('MaintenanceRequests') WHERE name='AssignedTechnicianID'") == 1, "Migration is idempotent");
         Check(Scalar("SELECT AssignedTechnicianID FROM MaintenanceRequests WHERE RequestID=1") == 3, "Legacy technician request is assigned to its creator");
         Check(Scalar("SELECT COUNT(*) FROM Users") == 3, "Existing data and seeded users survive migration");
+        Check(Scalar("SELECT COUNT(*) FROM pragma_table_info('MaintenanceLogs') WHERE name='EquipmentStatusAfter'") == 1, "Old history gains a nullable repair outcome");
+        Throws<SQLiteException>(() => DatabaseHelper.ExecuteNonQuery("INSERT INTO Equipments (EquipmentCode, EquipmentName, LabID) VALUES ('ORPHAN', 'Orphan', 9999)"));
+        Throws<SQLiteException>(() => DatabaseHelper.ExecuteNonQuery("UPDATE Equipments SET LabID=9999 WHERE EquipmentID=1"));
     }
 
     private static void TestAssignmentAndCompletion()
@@ -117,6 +128,16 @@ internal static class RegressionTests
         Check(Scalar("SELECT COUNT(*) FROM MaintenanceLogs WHERE EquipmentStatusAfter='Hỏng'") == 1, "Outcome stored independently in history");
         DatabaseHelper.ExecuteNonQuery("INSERT INTO Labs (LabCode, LabName) VALUES ('EMPTY', 'Empty'); DELETE FROM Labs WHERE LabCode='EMPTY'");
         Check(Scalar("SELECT COUNT(*) FROM Labs WHERE LabCode='EMPTY'") == 0, "Empty lab may be deleted");
+        DatabaseHelper.ExecuteNonQuery(@"
+            INSERT INTO Equipments (EquipmentCode, EquipmentName, LabID) VALUES ('DELETE-ME', 'No maintenance', 1);
+            DELETE FROM Equipments WHERE EquipmentCode='DELETE-ME';");
+        Check(Scalar("SELECT COUNT(*) FROM Equipments WHERE EquipmentCode='DELETE-ME'") == 0, "Equipment without requests may be deleted");
+        MaintenanceService.CreateRequest(3, 2, "First pending repair", "Thấp", 3);
+        MaintenanceService.CreateRequest(3, 3, "Second pending repair", "Thấp", 3);
+        Throws<SQLiteException>(() => DatabaseHelper.ExecuteNonQuery("INSERT INTO MaintenanceRequests (EquipmentID, RequestedBy, RequestDate, IssueDescription) VALUES (2, 3, '2026-01-01', 'Duplicate')"));
+        Throws<SQLiteException>(() => DatabaseHelper.ExecuteNonQuery("UPDATE Equipments SET Status='Thanh lý' WHERE EquipmentID=2"));
+        foreach (double value in new[] { double.NaN, double.PositiveInfinity, 1.5, VndMoney.MaxExactValue + 1 })
+            Throws<ArgumentException>(() => MaintenanceService.CompleteRequest(3, (int)Scalar("SELECT MAX(RequestID) FROM MaintenanceRequests"), "Invalid cost", value));
     }
 
     private static void TestRoleScreensAndLogout()
@@ -140,6 +161,7 @@ internal static class RegressionTests
             form.btnNavRequest.PerformClick();
             Check(form.tabMain.SelectedTab == form.tabRequests, role + " request navigation works after tab removal");
             Check(form.cboReqTechnician.Visible == (role != "Technician"), role + " assignment selector visibility");
+            Check(form.cboReqEquipment.Items.Count == 0, "Retired equipment and equipment with pending requests are excluded");
             if (role != "Technician")
             {
                 Check(form.cboReqTechnician.Items.Count == 2 && form.cboReqTechnician.SelectedIndex == -1, "Assignment needs an explicit technician choice");
@@ -148,6 +170,19 @@ internal static class RegressionTests
             form.tabMain.SelectedTab = form.tabHistory;
             Check(form.lblPageTitle.Text == "Xử lý và lịch sử bảo trì", "Direct tab selection updates the header");
             Check(form.pnlHisCard.Visible == (role != "LabManager"), role + " completion panel access");
+            if (role != "LabManager")
+            {
+                Check(form.radAfterGood.Parent == form.radAfterBroken.Parent && form.radAfterBroken.Bottom < form.radAfterBroken.Parent!.ClientSize.Height,
+                    "Repair outcomes share a group and fit inside it");
+                form.radAfterBroken.Checked = true;
+                form.txtLogAction.Text = "Notes for the previous request";
+                form.txtLogCost.Text = "1.950.000";
+                form.cboPendingRequests.SelectedIndex = 1;
+                Check(!form.radAfterGood.Checked && !form.radAfterBroken.Checked && form.txtLogAction.Text == "" && form.txtLogCost.Text == "0",
+                    "Changing request clears the previous repair outcome, notes and cost");
+                Check(form.dgvLogs.Columns["Tình trạng thiết bị sau bảo trì"]!.Index == form.dgvLogs.Columns["Ngày hoàn thành"]!.Index + 1,
+                    "Repair outcome follows the completion date in history");
+            }
             form.btnNavStats.PerformClick();
             Check(form.tabMain.SelectedTab == form.tabStats, role + " statistics navigation works");
             form.btnLogout.PerformClick();
@@ -181,3 +216,4 @@ internal static class RegressionTests
         throw new Exception("Expected " + typeof(T).Name);
     }
 }
+
