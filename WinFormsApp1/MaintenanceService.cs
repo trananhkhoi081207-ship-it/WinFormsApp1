@@ -40,6 +40,19 @@ namespace LabMaintenanceApp
                     if (GetRole(conn, transaction, technicianId) != "Technician")
                         throw new ArgumentException("Người được phân công phải là kỹ thuật viên.");
 
+                    using (var check = new SQLiteCommand("SELECT Status FROM Equipments WHERE EquipmentID=@eq", conn, transaction))
+                    {
+                        check.Parameters.AddWithValue("@eq", equipmentId);
+                        var status = check.ExecuteScalar();
+                        if (status == null) throw new ArgumentException("Thiết bị không còn tồn tại.");
+                        if (status.ToString() == "Thanh lý") throw new InvalidOperationException("Thiết bị đã thanh lý không thể tạo phiếu bảo trì.");
+                    }
+                    using (var check = new SQLiteCommand("SELECT COUNT(*) FROM MaintenanceRequests WHERE EquipmentID=@eq AND Status <> 'Hoàn thành'", conn, transaction))
+                    {
+                        check.Parameters.AddWithValue("@eq", equipmentId);
+                        if (Convert.ToInt64(check.ExecuteScalar()) > 0) throw new InvalidOperationException("Thiết bị đã có phiếu bảo trì chưa hoàn thành.");
+                    }
+
                     using (var cmd = new SQLiteCommand(@"
                         INSERT INTO MaintenanceRequests
                             (EquipmentID, RequestedBy, RequestDate, IssueDescription, Priority, Status, AssignedTechnicianID)
@@ -62,10 +75,11 @@ namespace LabMaintenanceApp
             }
         }
 
-        public static void CompleteRequest(int userId, int requestId, string action, double cost)
+        public static void CompleteRequest(int userId, int requestId, string action, double cost, string equipmentStatus = "Tốt")
         {
             if (string.IsNullOrWhiteSpace(action)) throw new ArgumentException("Vui lòng nhập kết quả sửa chữa!");
-            if (double.IsNaN(cost) || double.IsInfinity(cost) || cost < 0) throw new ArgumentException("Chi phí phải là số không âm.");
+            if (equipmentStatus != "Tốt" && equipmentStatus != "Hỏng") throw new ArgumentException("Vui lòng chọn tình trạng thiết bị sau bảo trì.");
+            if (double.IsNaN(cost) || double.IsInfinity(cost) || cost < 0 || cost > VndMoney.MaxExactValue || Math.Truncate(cost) != cost) throw new ArgumentException("Chi phí phải là số nguyên không âm (VND).");
             using (var conn = new SQLiteConnection(DatabaseHelper.ConnectionString))
             {
                 conn.Open();
@@ -89,23 +103,24 @@ namespace LabMaintenanceApp
                             throw new InvalidOperationException("Phiếu đã hoàn thành, không tồn tại hoặc được giao cho kỹ thuật viên khác.");
                     }
                     using (var cmd = new SQLiteCommand(@"
-                        INSERT INTO MaintenanceLogs (RequestID, TechnicianID, CompletedDate, ActionTaken, Cost)
-                        VALUES (@r, @t, @d, @act, @c)", conn, transaction))
+                        INSERT INTO MaintenanceLogs (RequestID, TechnicianID, CompletedDate, ActionTaken, Cost, EquipmentStatusAfter)
+                        VALUES (@r, @t, @d, @act, @c, @status)", conn, transaction))
                     {
                         cmd.Parameters.AddRange(new[] {
                             new SQLiteParameter("@r", requestId), new SQLiteParameter("@t", userId),
                             new SQLiteParameter("@d", DateTime.Now.ToString("yyyy-MM-dd HH:mm")),
-                            new SQLiteParameter("@act", action.Trim()), new SQLiteParameter("@c", cost)
+                            new SQLiteParameter("@act", action.Trim()), new SQLiteParameter("@c", cost), new SQLiteParameter("@status", equipmentStatus)
                         });
                         cmd.ExecuteNonQuery();
                     }
                     using (var cmd = new SQLiteCommand(@"
                         UPDATE Equipments SET Status = CASE WHEN EXISTS (
                             SELECT 1 FROM MaintenanceRequests r WHERE r.EquipmentID=Equipments.EquipmentID AND r.Status='Chờ xử lý'
-                        ) THEN 'Đang bảo trì' ELSE 'Tốt' END
+                        ) THEN 'Đang bảo trì' ELSE @status END
                         WHERE EquipmentID=(SELECT EquipmentID FROM MaintenanceRequests WHERE RequestID=@r)", conn, transaction))
                     {
                         cmd.Parameters.AddWithValue("@r", requestId);
+                        cmd.Parameters.AddWithValue("@status", equipmentStatus);
                         cmd.ExecuteNonQuery();
                     }
                     transaction.Commit();
