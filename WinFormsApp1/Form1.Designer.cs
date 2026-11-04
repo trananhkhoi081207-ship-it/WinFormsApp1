@@ -1,4 +1,4 @@
-﻿namespace LabMaintenanceApp
+namespace LabMaintenanceApp
 {
     partial class Form1
     {
@@ -78,6 +78,7 @@
             this.tabHistory = new System.Windows.Forms.TabPage();
             this.dgvLogs = new System.Windows.Forms.DataGridView();
             this.pnlHisCard = new System.Windows.Forms.Panel();
+            this.grpAfterCondition = new System.Windows.Forms.GroupBox();
             this.btnHisComplete = new System.Windows.Forms.Button();
             this.txtLogAction = new System.Windows.Forms.TextBox();
             this.lblHisAction = new System.Windows.Forms.Label();
@@ -551,7 +552,15 @@
             this.pnlHisCard.Controls.Add(this.cboPendingRequests);
             this.pnlHisCard.Controls.Add(this.lblHisPending);
             this.pnlHisCard.Location = new System.Drawing.Point(18, 15);
-            this.pnlHisCard.Size = new System.Drawing.Size(875, 110);
+            this.pnlHisCard.Size = new System.Drawing.Size(875, 170);
+            // Tạo toàn bộ bố cục trước ResumeLayout để WinForms scale cùng các ô có sẵn.
+            this.grpAfterCondition.Text = "Tình trạng thiết bị sau khi bảo trì";
+            this.grpAfterCondition.Location = new System.Drawing.Point(20, 103);
+            this.grpAfterCondition.Size = new System.Drawing.Size(830, 55);
+            this.grpAfterCondition.TabIndex = 7;
+            this.grpAfterCondition.Controls.Add(this.radAfterGood);
+            this.grpAfterCondition.Controls.Add(this.radAfterBroken);
+            this.pnlHisCard.Controls.Add(this.grpAfterCondition);
 
             this.lblHisPending.AutoSize = true;
             this.lblHisPending.Location = new System.Drawing.Point(20, 20);
@@ -581,8 +590,8 @@
             this.btnHisComplete.Size = new System.Drawing.Size(165, 35);
             this.btnHisComplete.Text = "✔ Hoàn Tất Bảo Trì";
 
-            this.dgvLogs.Location = new System.Drawing.Point(18, 140);
-            this.dgvLogs.Size = new System.Drawing.Size(875, 425);
+            this.dgvLogs.Location = new System.Drawing.Point(18, 195);
+            this.dgvLogs.Size = new System.Drawing.Size(875, 370);
             // 
             // tabStats (Tab 5: Thống kê)
             // 
@@ -836,6 +845,7 @@
         public System.Windows.Forms.TabPage tabHistory;
         public System.Windows.Forms.DataGridView dgvLogs;
         public System.Windows.Forms.Panel pnlHisCard;
+        public System.Windows.Forms.GroupBox grpAfterCondition;
         public System.Windows.Forms.Button btnHisComplete;
         public System.Windows.Forms.TextBox txtLogAction;
         public System.Windows.Forms.Label lblHisAction;

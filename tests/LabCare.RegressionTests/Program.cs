@@ -20,6 +20,7 @@ internal static class RegressionTests
             TestAssignmentAndCompletion();
             TestSafetyAndMoney();
             TestRoleScreensAndLogout();
+            TestHistoryScaling();
             Console.WriteLine($"PASS: {checks} regression checks");
             return 0;
         }
@@ -195,6 +196,37 @@ internal static class RegressionTests
         closed.Show();
         closed.Close();
         Check(!closed.LogoutRequested, "Window close exits rather than logging out");
+    }
+
+    private static void TestHistoryScaling()
+    {
+        foreach (float scale in new[] { 1f, 1.25f, 1.5f, 2f })
+        {
+            using var form = new Form1(1, "Admin", "Admin");
+            form.Show();
+            form.tabMain.SelectedTab = form.tabHistory;
+            form.Scale(new System.Drawing.SizeF(scale, scale));
+            Application.DoEvents();
+            var group = form.grpAfterCondition;
+            Check(group.Top >= Math.Max(form.txtLogAction.Bottom, form.btnHisComplete.Bottom),
+                $"Outcome group stays below repair notes and button at scale {scale}");
+            Check(group.Bottom <= form.pnlHisCard.ClientSize.Height && form.dgvLogs.Top > form.pnlHisCard.Bottom,
+                $"History grid does not cover completion controls at scale {scale}");
+            Check(!form.radAfterGood.Bounds.IntersectsWith(form.radAfterBroken.Bounds)
+                && group.ClientRectangle.Contains(form.radAfterBroken.Bounds),
+                $"Radio options remain separate and contained at scale {scale}");
+            Check(form.pnlHisCard.Region!.IsVisible(form.pnlHisCard.Width / 2, form.pnlHisCard.Height - 2),
+                $"Rounded card region follows scaled height at scale {scale}");
+            string? captures = Environment.GetEnvironmentVariable("LABCARE_LAYOUT_CAPTURE_DIR");
+            if (!string.IsNullOrEmpty(captures))
+            {
+                Directory.CreateDirectory(captures);
+                using var bitmap = new System.Drawing.Bitmap(form.pnlHisCard.Width, form.pnlHisCard.Height);
+                form.pnlHisCard.DrawToBitmap(bitmap, form.pnlHisCard.ClientRectangle);
+                bitmap.Save(Path.Combine(captures, $"history-scale-{scale}.png"));
+            }
+            form.Close();
+        }
     }
 
     private static HashSet<int> PendingIds(int userId) => MaintenanceService.GetPendingRequests(userId).Rows
