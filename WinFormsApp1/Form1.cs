@@ -9,6 +9,8 @@ namespace LabMaintenanceApp
 {
     public partial class Form1 : Form
     {
+        public RadioButton radAfterGood = new RadioButton { Text = "Sửa thành công - thiết bị tốt", AutoSize = true, Left = 15, Top = 23 };
+        public RadioButton radAfterBroken = new RadioButton { Text = "Chưa sửa được - thiết bị hỏng", AutoSize = true, Left = 340, Top = 23 };
         private int currentUserId = 1;
         private string currentUserName = "Quản trị hệ thống";
         private string currentUserRole = "Admin";
@@ -20,6 +22,13 @@ namespace LabMaintenanceApp
         public Form1(int userId, string fullName, string role)
         {
             InitializeComponent();
+            var condition = new GroupBox { Text = "Tình trạng thiết bị sau khi bảo trì", Left = 20, Top = 103, Width = 830, Height = 55 };
+            condition.Controls.AddRange(new Control[] { radAfterGood, radAfterBroken });
+            pnlHisCard.Height = 170;
+            pnlHisCard.Controls.Add(condition);
+            dgvLogs.Top = 195;
+            dgvLogs.Height = 370;
+            txtLogCost.Leave += (_, _) => { if (VndMoney.TryParse(txtLogCost.Text, out double amount)) txtLogCost.Text = VndMoney.Format(amount); };
             currentUserId = userId;
             currentUserName = fullName;
             currentUserRole = role;
@@ -259,6 +268,7 @@ namespace LabMaintenanceApp
                 if (!RequirePermission(RolePermissions.CanManageEquipment(currentUserRole))) return;
                 if (dgvEquipments.CurrentRow == null) return;
                 int id = Convert.ToInt32(dgvEquipments.CurrentRow.Cells["EquipmentID"].Value);
+                try {
                 DatabaseHelper.ExecuteNonQuery(
                     "UPDATE Equipments SET EquipmentCode=@c, EquipmentName=@n, Category=@cat, LabID=@l, Status=@s WHERE EquipmentID=@id",
                     new SQLiteParameter("@c", txtEqCode.Text.Trim()),
@@ -268,6 +278,7 @@ namespace LabMaintenanceApp
                     new SQLiteParameter("@s", cboEqStatus.Text),
                     new SQLiteParameter("@id", id));
                 LoadAllData();
+                } catch (Exception ex) { MessageBox.Show("Không thể cập nhật: " + ex.Message); }
             };
 
             // 3. Xóa thiết bị
@@ -276,8 +287,11 @@ namespace LabMaintenanceApp
                 if (!RequirePermission(RolePermissions.CanManageEquipment(currentUserRole))) return;
                 if (dgvEquipments.CurrentRow == null) return;
                 int id = Convert.ToInt32(dgvEquipments.CurrentRow.Cells["EquipmentID"].Value);
-                DatabaseHelper.ExecuteNonQuery("DELETE FROM Equipments WHERE EquipmentID=@id", new SQLiteParameter("@id", id));
-                LoadAllData();
+                if (Convert.ToInt64(DatabaseHelper.GetDataTable("SELECT COUNT(*) FROM MaintenanceRequests WHERE EquipmentID=@id", new SQLiteParameter("@id", id)).Rows[0][0]) > 0)
+                { MessageBox.Show("Không thể xóa do đã có lịch sử hoặc phiếu bảo trì. Hãy chuyển thiết bị sang thanh lý."); return; }
+                if (MessageBox.Show("Bạn có chắc chắn muốn xóa?", "Xác nhận", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+                try { DatabaseHelper.ExecuteNonQuery("DELETE FROM Equipments WHERE EquipmentID=@id", new SQLiteParameter("@id", id)); LoadAllData(); }
+                catch (Exception ex) { MessageBox.Show("Không thể xóa: " + ex.Message); }
             };
 
             // 4. Thêm & Xóa Phòng Lab
@@ -303,8 +317,11 @@ namespace LabMaintenanceApp
                 if (!RequirePermission(RolePermissions.CanManageLabs(currentUserRole))) return;
                 if (dgvLabs.CurrentRow == null) return;
                 int id = Convert.ToInt32(dgvLabs.CurrentRow.Cells["LabID"].Value);
-                DatabaseHelper.ExecuteNonQuery("DELETE FROM Labs WHERE LabID=@id", new SQLiteParameter("@id", id));
-                LoadAllData();
+                if (Convert.ToInt64(DatabaseHelper.GetDataTable("SELECT COUNT(*) FROM Equipments WHERE LabID=@id", new SQLiteParameter("@id", id)).Rows[0][0]) > 0)
+                { MessageBox.Show("Không thể xóa phòng Lab đang có thiết bị."); return; }
+                if (MessageBox.Show("Bạn có chắc chắn muốn xóa?", "Xác nhận", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+                try { DatabaseHelper.ExecuteNonQuery("DELETE FROM Labs WHERE LabID=@id", new SQLiteParameter("@id", id)); LoadAllData(); }
+                catch (Exception ex) { MessageBox.Show("Không thể xóa: " + ex.Message); }
             };
 
             // 5. Gửi yêu cầu bảo trì
@@ -336,14 +353,17 @@ namespace LabMaintenanceApp
                     MessageBox.Show("Vui lòng chọn phiếu chờ và nhập kết quả sửa chữa!");
                     return;
                 }
-                if (!double.TryParse(txtLogCost.Text.Trim(), out double cost) || double.IsNaN(cost) || double.IsInfinity(cost) || cost < 0)
+                if (!VndMoney.TryParse(txtLogCost.Text, out double cost))
                 {
-                    MessageBox.Show("Chi phí phải là số không âm.");
+                    MessageBox.Show("Chi phí không hợp lệ. Chi phí phải là số nguyên không âm (VND).");
                     return;
                 }
                 try
                 {
-                    MaintenanceService.CompleteRequest(currentUserId, Convert.ToInt32(cboPendingRequests.SelectedValue), txtLogAction.Text, cost);
+                    if (!radAfterGood.Checked && !radAfterBroken.Checked) { MessageBox.Show("Vui lòng chọn tình trạng thiết bị sau bảo trì."); return; }
+                    if (MessageBox.Show("Xác nhận hoàn tất bảo trì?", "Xác nhận", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                    MaintenanceService.CompleteRequest(currentUserId, Convert.ToInt32(cboPendingRequests.SelectedValue), txtLogAction.Text, cost, radAfterGood.Checked ? "Tốt" : "Hỏng");
+                    radAfterGood.Checked = radAfterBroken.Checked = false;
                     txtLogAction.Clear(); txtLogCost.Text = "0";
                     LoadAllData();
                     MessageBox.Show("Đã ghi nhận kết quả và hoàn tất phiếu bảo trì!");
@@ -378,7 +398,8 @@ namespace LabMaintenanceApp
                 if (id == 1 || id == currentUserId) { MessageBox.Show("Không thể xóa Admin mặc định hoặc tài khoản đang đăng nhập!"); return; }
                 var assigned = DatabaseHelper.GetDataTable("SELECT COUNT(*) FROM MaintenanceRequests WHERE AssignedTechnicianID=@id AND Status='Chờ xử lý'", new SQLiteParameter("@id", id));
                 if (Convert.ToInt64(assigned.Rows[0][0]) > 0) { MessageBox.Show("Không thể xóa kỹ thuật viên đang được phân công phiếu chưa hoàn thành!"); return; }
-                DatabaseHelper.ExecuteNonQuery("DELETE FROM Users WHERE UserID=@id", new SQLiteParameter("@id", id));
+                try { DatabaseHelper.ExecuteNonQuery("DELETE FROM Users WHERE UserID=@id", new SQLiteParameter("@id", id)); }
+                catch (Exception ex) { MessageBox.Show("Không thể xóa người dùng có dữ liệu liên quan: " + ex.Message); return; }
                 LoadAllData();
             };
         }
@@ -428,12 +449,14 @@ namespace LabMaintenanceApp
 
             dgvLogs.DataSource = DatabaseHelper.GetDataTable(@"
                 SELECT l.LogID AS 'Mã LS', e.EquipmentName AS 'Thiết bị', u.FullName AS 'Kỹ thuật viên',
-                       l.CompletedDate AS 'Ngày hoàn thành', l.ActionTaken AS 'Kết quả xử lý', l.Cost AS 'Chi phí (VNĐ)'
+                       l.CompletedDate AS 'Ngày hoàn thành', COALESCE(l.EquipmentStatusAfter, 'Chưa ghi nhận') AS 'Tình trạng thiết bị sau bảo trì', l.ActionTaken AS 'Kết quả xử lý', l.Cost AS 'Chi phí (VNĐ)'
                 FROM MaintenanceLogs l
                 JOIN MaintenanceRequests r ON l.RequestID = r.RequestID
                 JOIN Equipments e ON r.EquipmentID = e.EquipmentID
                 JOIN Users u ON l.TechnicianID = u.UserID ORDER BY l.LogID DESC");
 
+            dgvLogs.Columns["Chi phí (VNĐ)"].DefaultCellStyle.Format = "N0";
+            dgvLogs.Columns["Chi phí (VNĐ)"].DefaultCellStyle.FormatProvider = System.Globalization.CultureInfo.GetCultureInfo("vi-VN");
             dgvStatsStatus.DataSource = DatabaseHelper.GetDataTable("SELECT Status AS 'Trạng thái', COUNT(*) AS 'Số lượng' FROM Equipments GROUP BY Status");
             dgvStatsLab.DataSource = DatabaseHelper.GetDataTable("SELECT l.LabName AS 'Phòng Lab', COUNT(e.EquipmentID) AS 'Số thiết bị' FROM Labs l LEFT JOIN Equipments e ON l.LabID = e.LabID GROUP BY l.LabName");
 
@@ -443,7 +466,7 @@ namespace LabMaintenanceApp
 
             lblCardTotalVal.Text = $"{totalEq} Thiết bị";
             lblCardBrokenVal.Text = $"{brokenEq} Thiết bị";
-            lblCardCostVal.Text = $"{totalCost:N0} VNĐ";
+            lblCardCostVal.Text = VndMoney.Format(totalCost) + " VND";
 
             if (RolePermissions.CanManageUsers(currentUserRole))
                 dgvUsers.DataSource = DatabaseHelper.GetDataTable("SELECT UserID, Username AS 'Tài khoản', FullName AS 'Họ và tên', Role AS 'Vai trò' FROM Users");

@@ -90,7 +90,7 @@ namespace LabMaintenanceApp
     public static class DatabaseHelper
     {
         private static readonly string dbFile = "LabMaintenance.db";
-        public static readonly string ConnectionString = $"Data Source={dbFile};Version=3;";
+        public static readonly string ConnectionString = $"Data Source={dbFile};Version=3;Foreign Keys=True;";
 
         public static void InitializeDatabase()
         {
@@ -101,9 +101,9 @@ namespace LabMaintenanceApp
                 string sql = @"
                 CREATE TABLE IF NOT EXISTS Users (UserID INTEGER PRIMARY KEY AUTOINCREMENT, Username TEXT NOT NULL UNIQUE, PasswordHash TEXT NOT NULL, FullName TEXT NOT NULL, Role TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS Labs (LabID INTEGER PRIMARY KEY AUTOINCREMENT, LabCode TEXT NOT NULL UNIQUE, LabName TEXT NOT NULL, Location TEXT, Status TEXT DEFAULT 'Hoạt động');
-                CREATE TABLE IF NOT EXISTS Equipments (EquipmentID INTEGER PRIMARY KEY AUTOINCREMENT, EquipmentCode TEXT NOT NULL UNIQUE, EquipmentName TEXT NOT NULL, Category TEXT, LabID INTEGER NOT NULL, Status TEXT DEFAULT 'Tốt');
-                CREATE TABLE IF NOT EXISTS MaintenanceRequests (RequestID INTEGER PRIMARY KEY AUTOINCREMENT, EquipmentID INTEGER NOT NULL, RequestedBy INTEGER NOT NULL, RequestDate TEXT NOT NULL, IssueDescription TEXT NOT NULL, Priority TEXT DEFAULT 'Trung bình', Status TEXT DEFAULT 'Chờ xử lý');
-                CREATE TABLE IF NOT EXISTS MaintenanceLogs (LogID INTEGER PRIMARY KEY AUTOINCREMENT, RequestID INTEGER NOT NULL, TechnicianID INTEGER NOT NULL, CompletedDate TEXT, ActionTaken TEXT NOT NULL, Cost REAL DEFAULT 0);";
+                CREATE TABLE IF NOT EXISTS Equipments (EquipmentID INTEGER PRIMARY KEY AUTOINCREMENT, EquipmentCode TEXT NOT NULL UNIQUE, EquipmentName TEXT NOT NULL, Category TEXT, LabID INTEGER NOT NULL REFERENCES Labs(LabID) ON DELETE RESTRICT, Status TEXT DEFAULT 'Tốt');
+                CREATE TABLE IF NOT EXISTS MaintenanceRequests (RequestID INTEGER PRIMARY KEY AUTOINCREMENT, EquipmentID INTEGER NOT NULL REFERENCES Equipments(EquipmentID) ON DELETE RESTRICT, RequestedBy INTEGER NOT NULL REFERENCES Users(UserID) ON DELETE RESTRICT, RequestDate TEXT NOT NULL, IssueDescription TEXT NOT NULL, Priority TEXT DEFAULT 'Trung bình', Status TEXT DEFAULT 'Chờ xử lý');
+                CREATE TABLE IF NOT EXISTS MaintenanceLogs (LogID INTEGER PRIMARY KEY AUTOINCREMENT, RequestID INTEGER NOT NULL REFERENCES MaintenanceRequests(RequestID) ON DELETE RESTRICT, TechnicianID INTEGER NOT NULL REFERENCES Users(UserID) ON DELETE RESTRICT, CompletedDate TEXT, ActionTaken TEXT NOT NULL, Cost REAL DEFAULT 0);";
                 using (var cmd = new SQLiteCommand(sql, conn)) cmd.ExecuteNonQuery();
 
                 // Nâng cấp CSDL cũ tại chỗ, không xóa dữ liệu người dùng.
@@ -140,6 +140,53 @@ namespace LabMaintenanceApp
                         using (var seedCmd = new SQLiteCommand(seed, conn)) seedCmd.ExecuteNonQuery();
                     }
                 }
+                // Bổ sung cột nullable: lịch sử cũ không được suy đoán là sửa thành công.
+                bool hasOutcome = false;
+                using (var cmd = new SQLiteCommand("PRAGMA table_info(MaintenanceLogs)", conn))
+                using (var reader = cmd.ExecuteReader())
+                    while (reader.Read()) if (reader["name"].ToString() == "EquipmentStatusAfter") hasOutcome = true;
+                if (!hasOutcome)
+                    using (var cmd = new SQLiteCommand("ALTER TABLE MaintenanceLogs ADD COLUMN EquipmentStatusAfter TEXT CHECK (EquipmentStatusAfter IN ('Tốt','Hỏng'))", conn)) cmd.ExecuteNonQuery();
+
+                // Bảng SQLite cũ không thể thêm FK bằng ALTER COLUMN. Trigger tương đương
+                // bảo vệ các lần ghi mới mà không xóa hay tự sửa dữ liệu lịch sử.
+                foreach (var relation in new[] {
+                    ("Equipments", "LabID", "Labs", "LabID"),
+                    ("MaintenanceRequests", "EquipmentID", "Equipments", "EquipmentID"),
+                    ("MaintenanceRequests", "RequestedBy", "Users", "UserID"),
+                    ("MaintenanceRequests", "AssignedTechnicianID", "Users", "UserID"),
+                    ("MaintenanceLogs", "RequestID", "MaintenanceRequests", "RequestID"),
+                    ("MaintenanceLogs", "TechnicianID", "Users", "UserID") })
+                {
+                    var (child, column, parent, key) = relation;
+                    string name = child + "_" + column;
+                    string guards = $@"
+                        CREATE TRIGGER IF NOT EXISTS FK_{name}_delete BEFORE DELETE ON {parent}
+                        WHEN EXISTS (SELECT 1 FROM {child} WHERE {column}=OLD.{key})
+                        BEGIN SELECT RAISE(ABORT, 'Dữ liệu đang được tham chiếu, không thể xóa.'); END;
+                        CREATE TRIGGER IF NOT EXISTS FK_{name}_key BEFORE UPDATE OF {key} ON {parent}
+                        WHEN NEW.{key}<>OLD.{key} AND EXISTS (SELECT 1 FROM {child} WHERE {column}=OLD.{key})
+                        BEGIN SELECT RAISE(ABORT, 'Không thể thay đổi khóa đang được tham chiếu.'); END;";
+                    foreach (string operation in new[] { "INSERT", "UPDATE" })
+                        guards += $@"CREATE TRIGGER IF NOT EXISTS FK_{name}_{operation} BEFORE {operation} ON {child}
+                            WHEN NEW.{column} IS NOT NULL AND NOT EXISTS (SELECT 1 FROM {parent} WHERE {key}=NEW.{column})
+                            BEGIN SELECT RAISE(ABORT, 'Dữ liệu tham chiếu không tồn tại.'); END;";
+                    using (var cmd = new SQLiteCommand(guards, conn)) cmd.ExecuteNonQuery();
+                }
+                using (var cmd = new SQLiteCommand(@"
+                    CREATE TRIGGER IF NOT EXISTS GuardRequestInsert BEFORE INSERT ON MaintenanceRequests
+                    WHEN (SELECT Status FROM Equipments WHERE EquipmentID=NEW.EquipmentID)='Thanh lý'
+                      OR (NEW.Status<>'Hoàn thành' AND EXISTS (SELECT 1 FROM MaintenanceRequests WHERE EquipmentID=NEW.EquipmentID AND Status<>'Hoàn thành'))
+                    BEGIN SELECT RAISE(ABORT, 'Thiết bị đã thanh lý hoặc đang có phiếu chưa hoàn thành.'); END;
+                    CREATE TRIGGER IF NOT EXISTS GuardRequestUpdate BEFORE UPDATE OF EquipmentID, Status ON MaintenanceRequests
+                    WHEN NEW.Status<>'Hoàn thành' AND (
+                        (SELECT Status FROM Equipments WHERE EquipmentID=NEW.EquipmentID)='Thanh lý'
+                        OR EXISTS (SELECT 1 FROM MaintenanceRequests WHERE EquipmentID=NEW.EquipmentID AND RequestID<>NEW.RequestID AND Status<>'Hoàn thành'))
+                    BEGIN SELECT RAISE(ABORT, 'Thiết bị đã thanh lý hoặc đang có phiếu chưa hoàn thành.'); END;
+                    CREATE TRIGGER IF NOT EXISTS GuardRetirement BEFORE UPDATE OF Status ON Equipments
+                    WHEN NEW.Status='Thanh lý' AND EXISTS (SELECT 1 FROM MaintenanceRequests WHERE EquipmentID=NEW.EquipmentID AND Status<>'Hoàn thành')
+                    BEGIN SELECT RAISE(ABORT, 'Phải hoàn tất phiếu bảo trì trước khi thanh lý.'); END;", conn)) cmd.ExecuteNonQuery();
+
             }
         }
 

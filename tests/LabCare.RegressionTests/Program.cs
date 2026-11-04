@@ -18,6 +18,7 @@ internal static class RegressionTests
             Application.SetCompatibleTextRenderingDefault(false);
             TestMigration();
             TestAssignmentAndCompletion();
+            TestSafetyAndMoney();
             TestRoleScreensAndLogout();
             Console.WriteLine($"PASS: {checks} regression checks");
             return 0;
@@ -63,6 +64,7 @@ internal static class RegressionTests
         Throws<UnauthorizedAccessException>(() => MaintenanceService.CreateRequest(9999, 1, "Missing user", "Thấp", 3));
         Check(Scalar("SELECT COUNT(*) FROM MaintenanceRequests") == before, "Rejected requests leave no rows");
 
+        MaintenanceService.CompleteRequest(3, 1, "Legacy fixed", 0);
         MaintenanceService.CreateRequest(2, 1, "Manager request", "Khẩn cấp", otherTech);
         int managerRequest = (int)Scalar("SELECT MAX(RequestID) FROM MaintenanceRequests");
         Check(Scalar($"SELECT AssignedTechnicianID FROM MaintenanceRequests WHERE RequestID={managerRequest}") == otherTech, "Manager assignment persists");
@@ -72,6 +74,9 @@ internal static class RegressionTests
         Throws<InvalidOperationException>(() => MaintenanceService.CompleteRequest(3, managerRequest, "Wrong technician", 0));
         Throws<ArgumentException>(() => MaintenanceService.CompleteRequest(otherTech, managerRequest, "Invalid cost", -1));
 
+        Throws<InvalidOperationException>(() => MaintenanceService.CreateRequest(3, 1, "Duplicate", "Thấp", 3));
+        MaintenanceService.CompleteRequest(otherTech, managerRequest, "Not repaired", 0, "Hỏng");
+        Check(Scalar("SELECT COUNT(*) FROM Equipments WHERE EquipmentID=1 AND Status='Hỏng'") == 1, "Failed repair preserves broken status");
         MaintenanceService.CreateRequest(3, 1, "Technician request", "Trung bình", otherTech);
         int ownRequest = (int)Scalar("SELECT MAX(RequestID) FROM MaintenanceRequests");
         Check(Scalar($"SELECT AssignedTechnicianID FROM MaintenanceRequests WHERE RequestID={ownRequest}") == 3, "Technician is always self-assigned");
@@ -83,12 +88,11 @@ internal static class RegressionTests
 
         MaintenanceService.CompleteRequest(3, ownRequest, "Fixed", 100000);
         Check(Scalar($"SELECT TechnicianID FROM MaintenanceLogs WHERE RequestID={ownRequest}") == 3, "History records the technician who repaired");
-        Check(Scalar("SELECT COUNT(*) FROM Equipments WHERE EquipmentID=1 AND Status='Đang bảo trì'") == 1, "Other pending requests keep equipment under maintenance");
+        Check(Scalar("SELECT COUNT(*) FROM Equipments WHERE EquipmentID=1 AND Status='Tốt'") == 1, "Successful repair marks equipment good");
         Throws<InvalidOperationException>(() => MaintenanceService.CompleteRequest(3, ownRequest, "Duplicate", 0));
         Check(Scalar($"SELECT COUNT(*) FROM MaintenanceLogs WHERE RequestID={ownRequest}") == 1, "Completion cannot be duplicated");
 
-        MaintenanceService.CompleteRequest(otherTech, managerRequest, "Fixed by assignee", 0);
-        MaintenanceService.CompleteRequest(3, 1, "Legacy fixed", 0);
+
         Check(Scalar("SELECT COUNT(*) FROM Equipments WHERE EquipmentID=1 AND Status='Tốt'") == 1, "Last completed request restores equipment status");
         int legacyUnassigned = (int)Scalar("SELECT RequestID FROM MaintenanceRequests WHERE AssignedTechnicianID IS NULL LIMIT 1");
         MaintenanceService.CompleteRequest(3, legacyUnassigned, "Claim old unassigned request", 0);
@@ -97,6 +101,22 @@ internal static class RegressionTests
         int adminRequest = (int)Scalar("SELECT MAX(RequestID) FROM MaintenanceRequests");
         MaintenanceService.CompleteRequest(1, adminRequest, "Admin override", 0);
         Check(Scalar($"SELECT COUNT(*) FROM MaintenanceLogs WHERE RequestID={adminRequest}") == 1, "Admin retains maintenance access");
+    }
+
+    private static void TestSafetyAndMoney()
+    {
+        foreach (string text in new[] { "1.950.000", "1950000", "1,950,000" })
+            Check(VndMoney.TryParse(text, out double value) && value == 1950000 && VndMoney.Format(value) == "1.950.000", "VND normalization " + text);
+        foreach (string text in new[] { "-1", "1.5", "1,95,000", "1.950,000", "NaN", "1e6", "", "9007199254740992" })
+            Check(!VndMoney.TryParse(text, out _), "Reject invalid VND " + text);
+        Throws<SQLiteException>(() => DatabaseHelper.ExecuteNonQuery("DELETE FROM Equipments WHERE EquipmentID=1"));
+        Throws<SQLiteException>(() => DatabaseHelper.ExecuteNonQuery("DELETE FROM Labs WHERE LabID=1"));
+        DatabaseHelper.ExecuteNonQuery("UPDATE Equipments SET Status='Thanh lý' WHERE EquipmentID=1");
+        Throws<InvalidOperationException>(() => MaintenanceService.CreateRequest(3, 1, "Retired", "Thấp", 3));
+        Throws<SQLiteException>(() => DatabaseHelper.ExecuteNonQuery("INSERT INTO MaintenanceRequests (EquipmentID, RequestedBy, RequestDate, IssueDescription) VALUES (1, 3, '2026-01-01', 'Retired')"));
+        Check(Scalar("SELECT COUNT(*) FROM MaintenanceLogs WHERE EquipmentStatusAfter='Hỏng'") == 1, "Outcome stored independently in history");
+        DatabaseHelper.ExecuteNonQuery("INSERT INTO Labs (LabCode, LabName) VALUES ('EMPTY', 'Empty'); DELETE FROM Labs WHERE LabCode='EMPTY'");
+        Check(Scalar("SELECT COUNT(*) FROM Labs WHERE LabCode='EMPTY'") == 0, "Empty lab may be deleted");
     }
 
     private static void TestRoleScreensAndLogout()
