@@ -29,6 +29,13 @@ namespace LabMaintenanceApp
             dgvLogs.Top = 195;
             dgvLogs.Height = 370;
             txtLogCost.Leave += (_, _) => { if (VndMoney.TryParse(txtLogCost.Text, out double amount)) txtLogCost.Text = VndMoney.Format(amount); };
+            // Không mang kết quả của phiếu trước sang thiết bị vừa chọn.
+            cboPendingRequests.SelectedValueChanged += (_, _) =>
+            {
+                radAfterGood.Checked = radAfterBroken.Checked = false;
+                txtLogAction.Clear();
+                txtLogCost.Text = "0";
+            };
             currentUserId = userId;
             currentUserName = fullName;
             currentUserRole = role;
@@ -430,9 +437,16 @@ namespace LabMaintenanceApp
                        e.Category AS 'Danh mục', l.LabName AS 'Phòng Lab', e.Status AS 'Trạng thái'
                 FROM Equipments e LEFT JOIN Labs l ON e.LabID = l.LabID");
             dgvEquipments.DataSource = dtEq;
-            cboReqEquipment.DataSource = dtEq.Copy();
             cboReqEquipment.DisplayMember = "Tên Thiết Bị";
             cboReqEquipment.ValueMember = "EquipmentID";
+            cboReqEquipment.DataSource = DatabaseHelper.GetDataTable(@"
+                SELECT e.EquipmentID, e.EquipmentName AS 'Tên Thiết Bị'
+                FROM Equipments e
+                WHERE e.Status <> 'Thanh lý'
+                  AND NOT EXISTS (SELECT 1 FROM MaintenanceRequests r
+                                  WHERE r.EquipmentID=e.EquipmentID AND r.Status <> 'Hoàn thành')
+                ORDER BY e.EquipmentName, e.EquipmentID");
+            cboReqEquipment.SelectedIndex = -1;
 
             dgvRequests.DataSource = DatabaseHelper.GetDataTable(@"
                 SELECT r.RequestID, e.EquipmentCode || ' - ' || e.EquipmentName AS 'Thiết bị',
@@ -455,8 +469,11 @@ namespace LabMaintenanceApp
                 JOIN Equipments e ON r.EquipmentID = e.EquipmentID
                 JOIN Users u ON l.TechnicianID = u.UserID ORDER BY l.LogID DESC");
 
-            dgvLogs.Columns["Chi phí (VNĐ)"].DefaultCellStyle.Format = "N0";
-            dgvLogs.Columns["Chi phí (VNĐ)"].DefaultCellStyle.FormatProvider = System.Globalization.CultureInfo.GetCultureInfo("vi-VN");
+            if (dgvLogs.Columns["Chi phí (VNĐ)"] is DataGridViewColumn costColumn)
+            {
+                costColumn.DefaultCellStyle.Format = "N0";
+                costColumn.DefaultCellStyle.FormatProvider = System.Globalization.CultureInfo.GetCultureInfo("vi-VN");
+            }
             dgvStatsStatus.DataSource = DatabaseHelper.GetDataTable("SELECT Status AS 'Trạng thái', COUNT(*) AS 'Số lượng' FROM Equipments GROUP BY Status");
             dgvStatsLab.DataSource = DatabaseHelper.GetDataTable("SELECT l.LabName AS 'Phòng Lab', COUNT(e.EquipmentID) AS 'Số thiết bị' FROM Labs l LEFT JOIN Equipments e ON l.LabID = e.LabID GROUP BY l.LabName");
 
@@ -473,3 +490,4 @@ namespace LabMaintenanceApp
         }
     }
 }
+
