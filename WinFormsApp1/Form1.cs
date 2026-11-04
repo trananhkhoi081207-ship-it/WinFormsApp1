@@ -22,12 +22,6 @@ namespace LabMaintenanceApp
         public Form1(int userId, string fullName, string role)
         {
             InitializeComponent();
-            var condition = new GroupBox { Text = "Tình trạng thiết bị sau khi bảo trì", Left = 20, Top = 103, Width = 830, Height = 55 };
-            condition.Controls.AddRange(new Control[] { radAfterGood, radAfterBroken });
-            pnlHisCard.Height = 170;
-            pnlHisCard.Controls.Add(condition);
-            dgvLogs.Top = 195;
-            dgvLogs.Height = 370;
             txtLogCost.Leave += (_, _) => { if (VndMoney.TryParse(txtLogCost.Text, out double amount)) txtLogCost.Text = VndMoney.Format(amount); };
             // Không mang kết quả của phiếu trước sang thiết bị vừa chọn.
             cboPendingRequests.SelectedValueChanged += (_, _) =>
@@ -146,6 +140,12 @@ namespace LabMaintenanceApp
 
         public static void MakeRounded(Control ctrl, int radius)
         {
+            ApplyRoundedRegion(ctrl, radius);
+            ctrl.SizeChanged += (_, _) => ApplyRoundedRegion(ctrl, radius);
+        }
+
+        private static void ApplyRoundedRegion(Control ctrl, int radius)
+        {
             if (ctrl.Width <= 0 || ctrl.Height <= 0) return;
             using (GraphicsPath path = new GraphicsPath())
             {
@@ -154,7 +154,9 @@ namespace LabMaintenanceApp
                 path.AddArc(ctrl.Width - radius, ctrl.Height - radius, radius, radius, 0, 90);
                 path.AddArc(0, ctrl.Height - radius, radius, radius, 90, 90);
                 path.CloseAllFigures();
+                var previousRegion = ctrl.Region;
                 ctrl.Region = new Region(path);
+                previousRegion?.Dispose();
             }
         }
 
