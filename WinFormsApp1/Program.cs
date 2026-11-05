@@ -27,6 +27,7 @@ namespace LabMaintenanceApp
                     if (login.ShowDialog() != DialogResult.OK) break;
                     using (var main = new Form1(login.LoggedInUserId, login.LoggedInFullName, login.LoggedInRole))
                     {
+                        main.WindowState = FormWindowState.Maximized;
                         Application.Run(main);
                         if (!main.LogoutRequested) break;
                     }
