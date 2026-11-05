@@ -21,6 +21,7 @@ internal static class RegressionTests
             TestSafetyAndMoney();
             TestRoleScreensAndLogout();
             TestHistoryScaling();
+            TestWideWindowLayout();
             Console.WriteLine($"PASS: {checks} regression checks");
             return 0;
         }
@@ -229,6 +230,43 @@ internal static class RegressionTests
         }
     }
 
+    private static void TestWideWindowLayout()
+    {
+        using var form = new Form1(1, "Admin", "Admin");
+        form.Show();
+        var pages = new[] {
+            (form.tabEquipments, form.pnlEqCard, form.dgvEquipments),
+            (form.tabLabs, form.pnlLabCard, form.dgvLabs),
+            (form.tabRequests, form.pnlReqCard, form.dgvRequests),
+            (form.tabHistory, form.pnlHisCard, form.dgvLogs),
+            (form.tabUsers, form.pnlUserCard, form.dgvUsers)
+        };
+        var initialSize = form.ClientSize;
+        foreach (var (page, card, grid) in pages)
+        {
+            form.tabMain.SelectedTab = page;
+            Application.DoEvents();
+            var initialPageSize = page.ClientSize;
+            var initialGridSize = grid.Size;
+            int initialCardWidth = card.Width;
+            form.ClientSize = new System.Drawing.Size(initialSize.Width + 300, initialSize.Height + 120);
+            Application.DoEvents();
+            int addedWidth = page.ClientSize.Width - initialPageSize.Width;
+            int addedHeight = page.ClientSize.Height - initialPageSize.Height;
+            Check(addedWidth > 0 && addedHeight > 0 && card.Width == initialCardWidth + addedWidth
+                && grid.Width == initialGridSize.Width + addedWidth && grid.Height == initialGridSize.Height + addedHeight,
+                $"Form and grid fill the larger window on {page.Text}");
+            form.ClientSize = initialSize;
+        }
+
+        form.tabMain.SelectedTab = form.tabStats;
+        form.ClientSize = new System.Drawing.Size(initialSize.Width + 300, initialSize.Height + 120);
+        int rightEdge = form.tabStats.ClientSize.Width - form.pnlCardTotalEq.Left;
+        Check(form.pnlCardCost.Right == rightEdge && form.dgvStatsLab.Right == rightEdge
+            && form.dgvStatsStatus.Right < form.dgvStatsLab.Left,
+            "Statistics cards and grids fill the available width without overlap");
+    }
+
     private static HashSet<int> PendingIds(int userId) => MaintenanceService.GetPendingRequests(userId).Rows
         .Cast<System.Data.DataRow>().Select(row => Convert.ToInt32(row["RequestID"])).ToHashSet();
 
@@ -248,4 +286,3 @@ internal static class RegressionTests
         throw new Exception("Expected " + typeof(T).Name);
     }
 }
-

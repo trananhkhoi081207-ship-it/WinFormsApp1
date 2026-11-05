@@ -35,9 +35,31 @@ namespace LabMaintenanceApp
             currentUserRole = role;
 
             ApplySoftModernUI();
+            tabStats.ClientSizeChanged += (_, _) => LayoutStatistics();
+            LayoutStatistics();
             BindEvents();
             LoadAllData();
             UpdateNavigation();
+        }
+
+        private void LayoutStatistics()
+        {
+            // Dùng lề đã được WinForms scale để các cột có khoảng cách nhất quán.
+            int margin = pnlCardTotalEq.Left;
+            int gap = margin;
+            int width = tabStats.ClientSize.Width - 2 * margin;
+            if (width <= 2 * gap) return;
+
+            int cardWidth = (width - 2 * gap) / 3;
+            pnlCardTotalEq.Width = cardWidth;
+            pnlCardBroken.Left = pnlCardTotalEq.Right + gap;
+            pnlCardBroken.Width = cardWidth;
+            pnlCardCost.Left = pnlCardBroken.Right + gap;
+            pnlCardCost.Width = margin + width - pnlCardCost.Left;
+
+            dgvStatsStatus.Width = (width - gap) / 2;
+            dgvStatsLab.Left = dgvStatsStatus.Right + gap;
+            dgvStatsLab.Width = margin + width - dgvStatsLab.Left;
         }
 
         // =====================================================================
@@ -492,4 +514,3 @@ namespace LabMaintenanceApp
         }
     }
 }
-
