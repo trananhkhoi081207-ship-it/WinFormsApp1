@@ -258,7 +258,8 @@ namespace LabMaintenanceApp
             };
 
             // Click vào dòng trên bảng Thiết bị -> Đổ dữ liệu lên ô nhập để Sửa/Xóa
-            dgvEquipments.SelectionChanged += (s, e) =>
+            // CurrentCellChanged fires after CurrentRow points to the new device.
+            dgvEquipments.CurrentCellChanged += (s, e) =>
             {
                 if (dgvEquipments.CurrentRow != null)
                 {
