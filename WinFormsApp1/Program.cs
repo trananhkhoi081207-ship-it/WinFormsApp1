@@ -58,19 +58,19 @@ namespace LabMaintenanceApp
 
             Label lblTitle = new Label { Text = "🧪 LABCARE PRO", Font = new Font("Segoe UI", 15, FontStyle.Bold), ForeColor = Color.FromArgb(37, 99, 235), AutoSize = true, Location = new Point(90, 18) };
             Label lblU = new Label { Text = "Tài khoản:", Font = new Font("Segoe UI Semibold", 9.5f), Location = new Point(30, 68), AutoSize = true };
-            txtUser = new TextBox { Location = new Point(120, 65), Width = 195, Font = new Font("Segoe UI", 10f), Text = "admin" };
+            txtUser = new TextBox { Location = new Point(120, 65), Width = 195, Font = new Font("Segoe UI", 10f) };
 
             Label lblP = new Label { Text = "Mật khẩu:", Font = new Font("Segoe UI Semibold", 9.5f), Location = new Point(30, 108), AutoSize = true };
-            txtPass = new TextBox { Location = new Point(120, 105), Width = 195, Font = new Font("Segoe UI", 10f), PasswordChar = '●', Text = "123456" };
+            txtPass = new TextBox { Location = new Point(120, 105), Width = 195, Font = new Font("Segoe UI", 10f), PasswordChar = '●' };
 
             Button btnLogin = new Button { Text = "ĐĂNG NHẬP HỆ THỐNG", Location = new Point(30, 150), Size = new Size(285, 38), BackColor = Color.FromArgb(59, 130, 246), ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI Semibold", 10f, FontStyle.Bold), Cursor = Cursors.Hand };
             btnLogin.FlatAppearance.BorderSize = 0;
             Form1.MakeRounded(btnLogin, 10);
             btnLogin.Click += (s, e) =>
             {
-                var dt = DatabaseHelper.GetDataTable("SELECT UserID, FullName, Role FROM Users WHERE Username=@u AND PasswordHash=@p",
-                    new SQLiteParameter("@u", txtUser.Text.Trim()), new SQLiteParameter("@p", txtPass.Text.Trim()));
-                if (dt.Rows.Count > 0)
+                var dt = DatabaseHelper.GetDataTable("SELECT UserID, FullName, Role, PasswordHash FROM Users WHERE Username=@u",
+                    new SQLiteParameter("@u", txtUser.Text.Trim()));
+                if (dt.Rows.Count == 1 && PasswordHasher.Verify(txtPass.Text, dt.Rows[0]["PasswordHash"].ToString() ?? ""))
                 {
                     LoggedInUserId = Convert.ToInt32(dt.Rows[0]["UserID"]);
                     LoggedInFullName = dt.Rows[0]["FullName"].ToString() ?? string.Empty;
@@ -141,6 +141,23 @@ namespace LabMaintenanceApp
                         using (var seedCmd = new SQLiteCommand(seed, conn)) seedCmd.ExecuteNonQuery();
                     }
                 }
+                // Nâng cấp mật khẩu cũ tại chỗ; không thay đổi mật khẩu người dùng nhập.
+                using (var transaction = conn.BeginTransaction())
+                {
+                    var passwords = new System.Collections.Generic.List<(long Id, string Value)>();
+                    using (var cmd = new SQLiteCommand("SELECT UserID, PasswordHash FROM Users", conn, transaction))
+                    using (var reader = cmd.ExecuteReader())
+                        while (reader.Read()) passwords.Add((reader.GetInt64(0), reader.GetString(1)));
+                    foreach (var (id, value) in passwords)
+                    {
+                        if (PasswordHasher.IsHashed(value)) continue;
+                        using var cmd = new SQLiteCommand("UPDATE Users SET PasswordHash=@p WHERE UserID=@id", conn, transaction);
+                        cmd.Parameters.AddWithValue("@p", PasswordHasher.Hash(value));
+                        cmd.Parameters.AddWithValue("@id", id);
+                        cmd.ExecuteNonQuery();
+                    }
+                    transaction.Commit();
+                }
                 // Bổ sung cột nullable: lịch sử cũ không được suy đoán là sửa thành công.
                 bool hasOutcome = false;
                 using (var cmd = new SQLiteCommand("PRAGMA table_info(MaintenanceLogs)", conn))
@@ -184,6 +201,10 @@ namespace LabMaintenanceApp
                         (SELECT Status FROM Equipments WHERE EquipmentID=NEW.EquipmentID)='Thanh lý'
                         OR EXISTS (SELECT 1 FROM MaintenanceRequests WHERE EquipmentID=NEW.EquipmentID AND RequestID<>NEW.RequestID AND Status<>'Hoàn thành'))
                     BEGIN SELECT RAISE(ABORT, 'Thiết bị đã thanh lý hoặc đang có phiếu chưa hoàn thành.'); END;
+                    CREATE TRIGGER IF NOT EXISTS GuardActiveMaintenanceStatus BEFORE UPDATE OF Status ON Equipments
+                    WHEN NEW.Status<>'Đang bảo trì' AND EXISTS (
+                        SELECT 1 FROM MaintenanceRequests WHERE EquipmentID=NEW.EquipmentID AND Status<>'Hoàn thành')
+                    BEGIN SELECT RAISE(ABORT, 'Thiết bị còn phiếu mở phải giữ trạng thái Đang bảo trì.'); END;
                     CREATE TRIGGER IF NOT EXISTS GuardRetirement BEFORE UPDATE OF Status ON Equipments
                     WHEN NEW.Status='Thanh lý' AND EXISTS (SELECT 1 FROM MaintenanceRequests WHERE EquipmentID=NEW.EquipmentID AND Status<>'Hoàn thành')
                     BEGIN SELECT RAISE(ABORT, 'Phải hoàn tất phiếu bảo trì trước khi thanh lý.'); END;", conn)) cmd.ExecuteNonQuery();

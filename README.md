@@ -10,7 +10,11 @@ Trên Windows, cài .NET 10 SDK rồi mở `WinFormsApp1.slnx` bằng Visual Stu
 dotnet run --project WinFormsApp1/WinFormsApp1.csproj
 ```
 
-Các tài khoản mẫu trong CSDL mới: `admin`, `ql_lab1`, `ktv_01`; mật khẩu mẫu là `123456`.
+Các tài khoản mẫu trong CSDL mới: `admin`, `ql_lab1`, `ktv_01`; mật khẩu mẫu là `123456`. Đây là tài khoản phục vụ chấm bài/demo. Màn hình đăng nhập để trống, bạn tự nhập tài khoản và mật khẩu.
+
+Mật khẩu được băm bằng PBKDF2-SHA256 (600.000 vòng, salt ngẫu nhiên cho mỗi mật khẩu). CSDL cũ được nâng cấp tự động, giữ nguyên mật khẩu đăng nhập. Tài khoản mới cũng chỉ lưu giá trị băm. Không dùng tài khoản mẫu cho dữ liệu thật.
+
+Hướng dẫn đóng gói và kịch bản trình bày: [HUONG_DAN_NOP_BAI.md](HUONG_DAN_NOP_BAI.md).
 
 ## Phân quyền
 
@@ -38,7 +42,9 @@ Nút **Đăng xuất** đóng phiên hiện tại và mở lại màn hình đă
 
 ## Quy tắc bảo trì và bảo vệ dữ liệu
 
-Mỗi thiết bị chỉ có một phiếu chưa hoàn thành. Danh sách tạo phiếu chỉ hiển thị thiết bị chưa thanh lý và không có phiếu đang mở; service và CSDL tiếp tục kiểm tra khi lưu.
+Khi sửa thiết bị, phòng lab được chọn theo đúng thiết bị; không được để trống mã, tên hoặc phòng lab. Thống kê “Đang bảo trì / Chờ sửa” chỉ tính thiết bị Hỏng hoặc Đang bảo trì, không tính thiết bị Thanh lý.
+
+Mỗi thiết bị chỉ có một phiếu chưa hoàn thành. Khi còn phiếu mở, không thể sửa thủ công trạng thái thiết bị sang trạng thái khác Đang bảo trì. Danh sách tạo phiếu chỉ hiển thị thiết bị chưa thanh lý và không có phiếu đang mở; service và CSDL tiếp tục kiểm tra khi lưu.
 
 Khi hoàn tất, phải chọn **Sửa thành công - thiết bị tốt** hoặc **Chưa sửa được - thiết bị hỏng**. Kết quả sửa chữa dùng để ghi chú chi tiết. Lịch sử lưu tình trạng sau bảo trì ngay sau ngày hoàn thành; lịch sử cũ chưa có kết quả được hiển thị là **Chưa ghi nhận**. Khi đổi phiếu, lựa chọn tình trạng, ghi chú và chi phí được xóa để tránh dùng nhầm dữ liệu của phiếu trước.
 

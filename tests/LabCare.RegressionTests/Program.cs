@@ -17,9 +17,11 @@ internal static class RegressionTests
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             TestMigration();
+            TestPasswords();
             TestAssignmentAndCompletion();
             TestSafetyAndMoney();
             TestRoleScreensAndLogout();
+            TestEquipmentEditingAndStatistics();
             TestHistoryScaling();
             TestWideWindowLayout();
             Console.WriteLine($"PASS: {checks} regression checks");
@@ -63,6 +65,30 @@ internal static class RegressionTests
         Check(Scalar("SELECT COUNT(*) FROM pragma_table_info('MaintenanceLogs') WHERE name='EquipmentStatusAfter'") == 1, "Old history gains a nullable repair outcome");
         Throws<SQLiteException>(() => DatabaseHelper.ExecuteNonQuery("INSERT INTO Equipments (EquipmentCode, EquipmentName, LabID) VALUES ('ORPHAN', 'Orphan', 9999)"));
         Throws<SQLiteException>(() => DatabaseHelper.ExecuteNonQuery("UPDATE Equipments SET LabID=9999 WHERE EquipmentID=1"));
+    }
+
+    private static void TestPasswords()
+    {
+        string stored = DatabaseHelper.GetDataTable("SELECT PasswordHash FROM Users WHERE UserID=1").Rows[0][0].ToString()!;
+        Check(stored != "123456" && PasswordHasher.Verify("123456", stored), "Sample passwords are hashed and remain usable");
+        Check(!PasswordHasher.Verify("incorrect", stored), "Wrong password is rejected");
+        Check(!PasswordHasher.Verify("123456", "123456"), "Login does not accept plaintext storage");
+        Check(!PasswordHasher.Verify("123456", "pbkdf2-sha256$600000$bad$bad"), "Malformed hashes are rejected");
+        string spaced = PasswordHasher.Hash(" password ");
+        Check(PasswordHasher.Verify(" password ", spaced) && !PasswordHasher.Verify("password", spaced), "Password whitespace is preserved");
+        Check(PasswordHasher.Hash("123456") != stored, "Each password has a random salt");
+        DatabaseHelper.ExecuteNonQuery("INSERT INTO Users (Username, PasswordHash, FullName, Role) VALUES ('legacy-login', 'old-password', 'Legacy', 'Technician')");
+        DatabaseHelper.InitializeDatabase();
+        Check(PasswordHasher.Verify("old-password", DatabaseHelper.GetDataTable("SELECT PasswordHash FROM Users WHERE Username='legacy-login'").Rows[0][0].ToString()!), "Existing plaintext password migrates without a reset");
+        Check(stored == DatabaseHelper.GetDataTable("SELECT PasswordHash FROM Users WHERE UserID=1").Rows[0][0].ToString(), "Repeated migration preserves existing hashes");
+        DatabaseHelper.ExecuteNonQuery("DELETE FROM Users WHERE Username='legacy-login'");
+        using var login = new FrmLogin();
+        var inputs = login.Controls.OfType<Panel>().Single().Controls.OfType<TextBox>().ToArray();
+        Check(inputs.All(input => input.Text == ""), "Login does not prefill credentials");
+        inputs.Single(input => input.PasswordChar == '\0').Text = "admin";
+        inputs.Single(input => input.PasswordChar != '\0').Text = "123456";
+        login.Shown += (_, _) => login.BeginInvoke(new Action(() => login.AcceptButton!.PerformClick()));
+        Check(login.ShowDialog() == DialogResult.OK && login.LoggedInUserId == 1, "Hashed sample account can sign in through the login screen");
     }
 
     private static void TestAssignmentAndCompletion()
@@ -138,6 +164,9 @@ internal static class RegressionTests
         MaintenanceService.CreateRequest(3, 3, "Second pending repair", "Thấp", 3);
         Throws<SQLiteException>(() => DatabaseHelper.ExecuteNonQuery("INSERT INTO MaintenanceRequests (EquipmentID, RequestedBy, RequestDate, IssueDescription) VALUES (2, 3, '2026-01-01', 'Duplicate')"));
         Throws<SQLiteException>(() => DatabaseHelper.ExecuteNonQuery("UPDATE Equipments SET Status='Thanh lý' WHERE EquipmentID=2"));
+        Throws<SQLiteException>(() => DatabaseHelper.ExecuteNonQuery("UPDATE Equipments SET Status='Tốt' WHERE EquipmentID=2"));
+        Throws<SQLiteException>(() => DatabaseHelper.ExecuteNonQuery("UPDATE Equipments SET Status='Hỏng' WHERE EquipmentID=2"));
+        Check(Scalar("SELECT COUNT(*) FROM Equipments WHERE EquipmentID=2 AND Status='Đang bảo trì'") == 1, "Open repair preserves maintenance status");
         foreach (double value in new[] { double.NaN, double.PositiveInfinity, 1.5, VndMoney.MaxExactValue + 1 })
             Throws<ArgumentException>(() => MaintenanceService.CompleteRequest(3, (int)Scalar("SELECT MAX(RequestID) FROM MaintenanceRequests"), "Invalid cost", value));
     }
@@ -265,6 +294,25 @@ internal static class RegressionTests
         Check(form.pnlCardCost.Right == rightEdge && form.dgvStatsLab.Right == rightEdge
             && form.dgvStatsStatus.Right < form.dgvStatsLab.Left,
             "Statistics cards and grids fill the available width without overlap");
+    }
+
+    private static void TestEquipmentEditingAndStatistics()
+    {
+        using var form = new Form1(1, "Admin", "Admin");
+        form.Show();
+        Application.DoEvents();
+        var row = form.dgvEquipments.Rows.Cast<DataGridViewRow>()
+            .Single(row => Convert.ToInt32(row.Cells["EquipmentID"].Value) == 3);
+        form.dgvEquipments.CurrentCell = row.Cells["Tên Thiết Bị"];
+        Check(Convert.ToInt32(form.cboEqLab.SelectedValue) == 2, "Selecting equipment selects its actual lab");
+        string name = form.txtEqName.Text;
+        form.txtEqName.Text = name + " updated";
+        form.btnEqUpdate.PerformClick();
+        Check(Scalar("SELECT LabID FROM Equipments WHERE EquipmentID=3") == 2, "Editing a name preserves equipment lab");
+        Check(DatabaseHelper.GetDataTable("SELECT EquipmentName FROM Equipments WHERE EquipmentID=3").Rows[0][0].ToString() == name + " updated", "Equipment edit is saved");
+        long expected = Scalar("SELECT COUNT(*) FROM Equipments WHERE Status IN ('Hỏng', 'Đang bảo trì')");
+        Check(form.lblCardBrokenVal.Text == $"{expected} Thiết bị", "Maintenance statistics exclude retired equipment");
+        Check(form.dgvEquipments.Columns["LabID"] is { Visible: false }, "Internal lab key is hidden");
     }
 
     private static HashSet<int> PendingIds(int userId) => MaintenanceService.GetPendingRequests(userId).Rows

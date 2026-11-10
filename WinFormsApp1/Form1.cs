@@ -266,6 +266,8 @@ namespace LabMaintenanceApp
                     txtEqName.Text = dgvEquipments.CurrentRow.Cells["Tên Thiết Bị"].Value?.ToString();
                     txtEqCategory.Text = dgvEquipments.CurrentRow.Cells["Danh mục"].Value?.ToString();
                     cboEqStatus.Text = dgvEquipments.CurrentRow.Cells["Trạng thái"].Value?.ToString();
+                    if (RolePermissions.CanManageEquipment(currentUserRole) && dgvEquipments.CurrentRow.Cells["LabID"].Value is object labId)
+                        cboEqLab.SelectedValue = labId;
                 }
             };
 
@@ -298,6 +300,11 @@ namespace LabMaintenanceApp
             {
                 if (!RequirePermission(RolePermissions.CanManageEquipment(currentUserRole))) return;
                 if (dgvEquipments.CurrentRow == null) return;
+                if (string.IsNullOrWhiteSpace(txtEqCode.Text) || string.IsNullOrWhiteSpace(txtEqName.Text) || cboEqLab.SelectedValue == null)
+                {
+                    MessageBox.Show("Vui lòng nhập đủ Mã, Tên thiết bị và Phòng Lab!", "Thông báo");
+                    return;
+                }
                 int id = Convert.ToInt32(dgvEquipments.CurrentRow.Cells["EquipmentID"].Value);
                 try {
                 DatabaseHelper.ExecuteNonQuery(
@@ -412,7 +419,7 @@ namespace LabMaintenanceApp
                     DatabaseHelper.ExecuteNonQuery(
                         "INSERT INTO Users (Username, PasswordHash, FullName, Role) VALUES (@u, @p, @f, @r)",
                         new SQLiteParameter("@u", txtNewUser.Text.Trim()),
-                        new SQLiteParameter("@p", txtNewPass.Text.Trim()),
+                        new SQLiteParameter("@p", PasswordHasher.Hash(txtNewPass.Text)),
                         new SQLiteParameter("@f", txtNewFullName.Text.Trim()),
                         new SQLiteParameter("@r", cboNewRole.Text));
                     txtNewUser.Clear(); txtNewPass.Clear(); txtNewFullName.Clear();
@@ -457,10 +464,11 @@ namespace LabMaintenanceApp
             btnReqSubmit.Enabled = RolePermissions.CanCreateRequest(currentUserRole);
 
             var dtEq = DatabaseHelper.GetDataTable(@"
-                SELECT e.EquipmentID, e.EquipmentCode AS 'Mã TB', e.EquipmentName AS 'Tên Thiết Bị',
+                SELECT e.EquipmentID, e.LabID, e.EquipmentCode AS 'Mã TB', e.EquipmentName AS 'Tên Thiết Bị',
                        e.Category AS 'Danh mục', l.LabName AS 'Phòng Lab', e.Status AS 'Trạng thái'
                 FROM Equipments e LEFT JOIN Labs l ON e.LabID = l.LabID");
             dgvEquipments.DataSource = dtEq;
+            if (dgvEquipments.Columns["LabID"] is DataGridViewColumn labColumn) labColumn.Visible = false;
             cboReqEquipment.DisplayMember = "Tên Thiết Bị";
             cboReqEquipment.ValueMember = "EquipmentID";
             cboReqEquipment.DataSource = DatabaseHelper.GetDataTable(@"
@@ -502,7 +510,7 @@ namespace LabMaintenanceApp
             dgvStatsLab.DataSource = DatabaseHelper.GetDataTable("SELECT l.LabName AS 'Phòng Lab', COUNT(e.EquipmentID) AS 'Số thiết bị' FROM Labs l LEFT JOIN Equipments e ON l.LabID = e.LabID GROUP BY l.LabName");
 
             long totalEq = Convert.ToInt64(DatabaseHelper.GetDataTable("SELECT COUNT(*) FROM Equipments").Rows[0][0]);
-            long brokenEq = Convert.ToInt64(DatabaseHelper.GetDataTable("SELECT COUNT(*) FROM Equipments WHERE Status != 'Tốt'").Rows[0][0]);
+            long brokenEq = Convert.ToInt64(DatabaseHelper.GetDataTable("SELECT COUNT(*) FROM Equipments WHERE Status IN ('Hỏng', 'Đang bảo trì')").Rows[0][0]);
             double totalCost = Convert.ToDouble(DatabaseHelper.GetDataTable("SELECT IFNULL(SUM(Cost), 0) FROM MaintenanceLogs").Rows[0][0]);
 
             lblCardTotalVal.Text = $"{totalEq} Thiết bị";
