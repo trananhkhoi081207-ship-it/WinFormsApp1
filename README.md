@@ -36,6 +36,20 @@ LabManager xem được lịch sử nhưng không có khung hoàn tất sửa ch
 
 Nút **Đăng xuất** đóng phiên hiện tại và mở lại màn hình đăng nhập, cho phép đổi tài khoản mà không cần chạy lại app. Đóng cửa sổ chính bằng X sẽ thoát ứng dụng.
 
+## Sửa phòng Lab và người dùng
+
+Admin và LabManager chọn phòng trong bảng, sửa mã/tên/vị trí rồi bấm **Sửa**. ID phòng được giữ nguyên nên thiết bị vẫn thuộc đúng phòng.
+
+Admin chọn người dùng trong bảng, sửa tài khoản/họ tên/vai trò rồi bấm **Sửa**. Để trống ô mật khẩu để giữ mật khẩu hiện tại; nhập mới để đặt lại mật khẩu. Không hiển thị mật khẩu cũ hoặc hash lên giao diện. Không thể đổi vai trò Admin mặc định, tài khoản đang đăng nhập, hoặc kỹ thuật viên còn phiếu mở.
+
+Các ô nhập có giới hạn: mã/tài khoản 50 ký tự, mật khẩu 128, tên/vị trí 200, danh mục 100, mô tả sự cố/kết quả 2.000, chi phí 21 (kể cả dấu phân cách).
+
+## Vị trí CSDL
+
+`LabMaintenance.db` nằm cạnh file chạy, theo `AppDomain.CurrentDomain.BaseDirectory`, không phụ thuộc thư mục Start in của shortcut. Chạy từ mã nguồn sẽ dùng DB trong `WinFormsApp1/bin/Debug/net10.0-windows/` (hoặc `Release`); bản publish dùng DB ngay trong thư mục publish. Đặt ứng dụng ở thư mục có quyền ghi.
+
+Nếu đã dùng bản cũ lưu DB theo thư mục làm việc: đóng ứng dụng, sao lưu và chép file DB cũ vào cạnh EXE của bản mới **trước lần chạy đầu tiên**. Nếu vị trí mới đã có DB thì sao lưu cả hai bản và chọn bản dữ liệu cần dùng; không ghi đè tùy tiện. Bản mới không tự tìm/chọn DB từ thư mục shortcut.
+
 ## CSDL đã có dữ liệu
 
 Ứng dụng tự thêm cột `AssignedTechnicianID` vào `MaintenanceRequests` khi chạy trên CSDL cũ; không cần xóa `LabMaintenance.db`. Phiếu cũ do Technician tạo được gán lại cho người tạo. Phiếu cũ chưa có người phụ trách được đánh dấu **Chưa phân công**; Technician có thể nhận bằng cách hoàn tất xử lý. Không được xóa tài khoản kỹ thuật viên còn phiếu đang được giao và chưa hoàn thành.
@@ -57,8 +71,9 @@ Thiết bị chưa từng có phiếu bảo trì được xóa sau khi xác nh�
 Chạy trên Windows:
 
 ```powershell
+dotnet build WinFormsApp1.slnx --configuration Release
 dotnet run --project tests/LabCare.RegressionTests/LabCare.RegressionTests.csproj --configuration Release
 ```
 
-Bộ kiểm tra dùng CSDL tạm riêng, kiểm tra nâng cấp CSDL cũ, phân công, tự nhận phiếu, chặn xử lý phiếu của người khác, giao dịch và ghi lịch sử, giao diện theo vai trò, điều hướng sau khi gỡ tab và đăng xuất. GitHub Actions chạy cùng các kiểm tra này trên Windows khi push hoặc mở pull request.
+Solution chứa cả ứng dụng và project kiểm tra (chương trình console, chạy bằng `dotnet run`). Bộ kiểm tra dùng CSDL tạm riêng, kiểm tra đường dẫn DB khi đổi thư mục làm việc, giới hạn nhập liệu, sửa phòng/người dùng, mật khẩu và  nâng cấp CSDL cũ, phân công, tự nhận phiếu, chặn xử lý phiếu của người khác, giao dịch và ghi lịch sử, giao diện theo vai trò, điều hướng sau khi gỡ tab và đăng xuất. GitHub Actions chạy cùng các kiểm tra này trên Windows khi push hoặc mở pull request.
 

@@ -56,6 +56,7 @@ namespace LabMaintenanceApp
             this.dgvLabs = new System.Windows.Forms.DataGridView();
             this.pnlLabCard = new System.Windows.Forms.Panel();
             this.btnLabDelete = new System.Windows.Forms.Button();
+            this.btnLabUpdate = new System.Windows.Forms.Button();
             this.btnLabAdd = new System.Windows.Forms.Button();
             this.txtLabLocation = new System.Windows.Forms.TextBox();
             this.lblLabLoc = new System.Windows.Forms.Label();
@@ -102,6 +103,7 @@ namespace LabMaintenanceApp
             this.dgvUsers = new System.Windows.Forms.DataGridView();
             this.pnlUserCard = new System.Windows.Forms.Panel();
             this.btnUserDelete = new System.Windows.Forms.Button();
+            this.btnUserUpdate = new System.Windows.Forms.Button();
             this.btnUserAdd = new System.Windows.Forms.Button();
             this.cboNewRole = new System.Windows.Forms.ComboBox();
             this.lblUserRole = new System.Windows.Forms.Label();
@@ -349,6 +351,7 @@ namespace LabMaintenanceApp
             this.lblEqCode.AutoSize = true;
             this.lblEqCode.Location = new System.Drawing.Point(20, 20);
             this.lblEqCode.Text = "Mã thiết bị:";
+            this.txtEqCode.MaxLength = InputLimits.Code;
             this.txtEqCode.Location = new System.Drawing.Point(105, 17);
             this.txtEqCode.Size = new System.Drawing.Size(130, 25);
 
@@ -356,6 +359,7 @@ namespace LabMaintenanceApp
             this.lblEqName.Location = new System.Drawing.Point(260, 20);
             this.lblEqName.Text = "Tên thiết bị:";
             this.txtEqName.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+            this.txtEqName.MaxLength = InputLimits.Name;
             this.txtEqName.Location = new System.Drawing.Point(345, 17);
             this.txtEqName.Size = new System.Drawing.Size(230, 25);
 
@@ -364,6 +368,7 @@ namespace LabMaintenanceApp
             this.lblEqCategory.Location = new System.Drawing.Point(600, 20);
             this.lblEqCategory.Text = "Danh mục:";
             this.txtEqCategory.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right;
+            this.txtEqCategory.MaxLength = InputLimits.Category;
             this.txtEqCategory.Location = new System.Drawing.Point(680, 17);
             this.txtEqCategory.Size = new System.Drawing.Size(170, 25);
 
@@ -431,6 +436,7 @@ namespace LabMaintenanceApp
             // 
             this.pnlLabCard.BackColor = System.Drawing.Color.White;
             this.pnlLabCard.Controls.Add(this.btnLabDelete);
+            this.pnlLabCard.Controls.Add(this.btnLabUpdate);
             this.pnlLabCard.Controls.Add(this.btnLabAdd);
             this.pnlLabCard.Controls.Add(this.txtLabLocation);
             this.pnlLabCard.Controls.Add(this.lblLabLoc);
@@ -440,11 +446,12 @@ namespace LabMaintenanceApp
             this.pnlLabCard.Controls.Add(this.lblLabCode);
             this.pnlLabCard.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
             this.pnlLabCard.Location = new System.Drawing.Point(18, 15);
-            this.pnlLabCard.Size = new System.Drawing.Size(875, 80);
+            this.pnlLabCard.Size = new System.Drawing.Size(875, 120);
 
             this.lblLabCode.AutoSize = true;
             this.lblLabCode.Location = new System.Drawing.Point(20, 28);
             this.lblLabCode.Text = "Mã Phòng:";
+            this.txtLabCode.MaxLength = InputLimits.Code;
             this.txtLabCode.Location = new System.Drawing.Point(95, 25);
             this.txtLabCode.Size = new System.Drawing.Size(100, 25);
 
@@ -452,6 +459,7 @@ namespace LabMaintenanceApp
             this.lblLabName.Location = new System.Drawing.Point(210, 28);
             this.lblLabName.Text = "Tên Phòng:";
             this.txtLabName.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+            this.txtLabName.MaxLength = InputLimits.Name;
             this.txtLabName.Location = new System.Drawing.Point(290, 25);
             this.txtLabName.Size = new System.Drawing.Size(185, 25);
 
@@ -460,6 +468,7 @@ namespace LabMaintenanceApp
             this.lblLabLoc.Location = new System.Drawing.Point(490, 28);
             this.lblLabLoc.Text = "Vị trí:";
             this.txtLabLocation.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right;
+            this.txtLabLocation.MaxLength = InputLimits.Location;
             this.txtLabLocation.Location = new System.Drawing.Point(535, 25);
             this.txtLabLocation.Size = new System.Drawing.Size(120, 25);
 
@@ -468,22 +477,31 @@ namespace LabMaintenanceApp
             this.btnLabAdd.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnLabAdd.ForeColor = System.Drawing.Color.White;
             this.btnLabAdd.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right;
-            this.btnLabAdd.Location = new System.Drawing.Point(670, 21);
+            this.btnLabAdd.Location = new System.Drawing.Point(565, 70);
             this.btnLabAdd.Size = new System.Drawing.Size(95, 34);
             this.btnLabAdd.Text = "+ Thêm";
+
+            this.btnLabUpdate.BackColor = System.Drawing.Color.FromArgb(59, 130, 246);
+            this.btnLabUpdate.FlatAppearance.BorderSize = 0;
+            this.btnLabUpdate.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnLabUpdate.ForeColor = System.Drawing.Color.White;
+            this.btnLabUpdate.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right;
+            this.btnLabUpdate.Location = new System.Drawing.Point(670, 70);
+            this.btnLabUpdate.Size = new System.Drawing.Size(95, 34);
+            this.btnLabUpdate.Text = "Sửa";
 
             this.btnLabDelete.BackColor = System.Drawing.Color.FromArgb(239, 68, 68);
             this.btnLabDelete.FlatAppearance.BorderSize = 0;
             this.btnLabDelete.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnLabDelete.ForeColor = System.Drawing.Color.White;
             this.btnLabDelete.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right;
-            this.btnLabDelete.Location = new System.Drawing.Point(775, 21);
+            this.btnLabDelete.Location = new System.Drawing.Point(775, 70);
             this.btnLabDelete.Size = new System.Drawing.Size(80, 34);
             this.btnLabDelete.Text = "🗑 Xóa";
 
             this.dgvLabs.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
-            this.dgvLabs.Location = new System.Drawing.Point(18, 110);
-            this.dgvLabs.Size = new System.Drawing.Size(875, 455);
+            this.dgvLabs.Location = new System.Drawing.Point(18, 150);
+            this.dgvLabs.Size = new System.Drawing.Size(875, 415);
             // 
             // tabRequests (Tab 3: Tạo yêu cầu bảo trì)
             // 
@@ -533,6 +551,7 @@ namespace LabMaintenanceApp
             this.lblReqIssue.Location = new System.Drawing.Point(20, 65);
             this.lblReqIssue.Text = "Mô tả tình trạng lỗi:";
             this.txtReqIssue.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+            this.txtReqIssue.MaxLength = InputLimits.Description;
             this.txtReqIssue.Location = new System.Drawing.Point(155, 62);
             this.txtReqIssue.Size = new System.Drawing.Size(510, 25);
 
@@ -603,6 +622,7 @@ namespace LabMaintenanceApp
             this.lblHisCost.Location = new System.Drawing.Point(595, 20);
             this.lblHisCost.Text = "Chi phí (VNĐ):";
             this.txtLogCost.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right;
+            this.txtLogCost.MaxLength = InputLimits.Money;
             this.txtLogCost.Location = new System.Drawing.Point(700, 17);
             this.txtLogCost.Size = new System.Drawing.Size(150, 25);
             this.txtLogCost.Text = "0";
@@ -611,6 +631,7 @@ namespace LabMaintenanceApp
             this.lblHisAction.Location = new System.Drawing.Point(20, 65);
             this.lblHisAction.Text = "Kết quả sửa chữa:";
             this.txtLogAction.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+            this.txtLogAction.MaxLength = InputLimits.Description;
             this.txtLogAction.Location = new System.Drawing.Point(145, 62);
             this.txtLogAction.Size = new System.Drawing.Size(520, 25);
 
@@ -718,6 +739,7 @@ namespace LabMaintenanceApp
             // 
             this.pnlUserCard.BackColor = System.Drawing.Color.White;
             this.pnlUserCard.Controls.Add(this.btnUserDelete);
+            this.pnlUserCard.Controls.Add(this.btnUserUpdate);
             this.pnlUserCard.Controls.Add(this.btnUserAdd);
             this.pnlUserCard.Controls.Add(this.cboNewRole);
             this.pnlUserCard.Controls.Add(this.lblUserRole);
@@ -729,18 +751,22 @@ namespace LabMaintenanceApp
             this.pnlUserCard.Controls.Add(this.lblUserName);
             this.pnlUserCard.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
             this.pnlUserCard.Location = new System.Drawing.Point(18, 15);
-            this.pnlUserCard.Size = new System.Drawing.Size(875, 105);
+            this.pnlUserCard.Size = new System.Drawing.Size(875, 150);
 
             this.lblUserName.AutoSize = true;
             this.lblUserName.Location = new System.Drawing.Point(20, 20);
             this.lblUserName.Text = "Tên đăng nhập:";
+            this.txtNewUser.MaxLength = InputLimits.Username;
             this.txtNewUser.Location = new System.Drawing.Point(130, 17);
             this.txtNewUser.Size = new System.Drawing.Size(150, 25);
 
             this.lblUserPass.AutoSize = true;
             this.lblUserPass.Location = new System.Drawing.Point(305, 20);
             this.lblUserPass.Text = "Mật khẩu:";
+            this.txtNewPass.MaxLength = InputLimits.Password;
             this.txtNewPass.Location = new System.Drawing.Point(380, 17);
+            this.txtNewPass.PasswordChar = '●';
+            this.txtNewPass.PlaceholderText = "Để trống: giữ mật khẩu";
             this.txtNewPass.Size = new System.Drawing.Size(150, 25);
 
             this.lblUserRole.AutoSize = true;
@@ -755,6 +781,7 @@ namespace LabMaintenanceApp
             this.lblUserFullName.Location = new System.Drawing.Point(20, 62);
             this.lblUserFullName.Text = "Họ và tên:";
             this.txtNewFullName.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+            this.txtNewFullName.MaxLength = InputLimits.Name;
             this.txtNewFullName.Location = new System.Drawing.Point(130, 59);
             this.txtNewFullName.Size = new System.Drawing.Size(400, 25);
 
@@ -763,22 +790,31 @@ namespace LabMaintenanceApp
             this.btnUserAdd.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnUserAdd.ForeColor = System.Drawing.Color.White;
             this.btnUserAdd.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right;
-            this.btnUserAdd.Location = new System.Drawing.Point(555, 55);
+            this.btnUserAdd.Location = new System.Drawing.Point(440, 102);
             this.btnUserAdd.Size = new System.Drawing.Size(155, 34);
             this.btnUserAdd.Text = "+ Tạo Tài Khoản";
+
+            this.btnUserUpdate.BackColor = System.Drawing.Color.FromArgb(59, 130, 246);
+            this.btnUserUpdate.FlatAppearance.BorderSize = 0;
+            this.btnUserUpdate.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnUserUpdate.ForeColor = System.Drawing.Color.White;
+            this.btnUserUpdate.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right;
+            this.btnUserUpdate.Location = new System.Drawing.Point(605, 102);
+            this.btnUserUpdate.Size = new System.Drawing.Size(95, 34);
+            this.btnUserUpdate.Text = "Sửa";
 
             this.btnUserDelete.BackColor = System.Drawing.Color.FromArgb(239, 68, 68);
             this.btnUserDelete.FlatAppearance.BorderSize = 0;
             this.btnUserDelete.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnUserDelete.ForeColor = System.Drawing.Color.White;
             this.btnUserDelete.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right;
-            this.btnUserDelete.Location = new System.Drawing.Point(725, 55);
+            this.btnUserDelete.Location = new System.Drawing.Point(725, 102);
             this.btnUserDelete.Size = new System.Drawing.Size(125, 34);
             this.btnUserDelete.Text = "🗑 Xóa User";
 
             this.dgvUsers.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
-            this.dgvUsers.Location = new System.Drawing.Point(18, 135);
-            this.dgvUsers.Size = new System.Drawing.Size(875, 430);
+            this.dgvUsers.Location = new System.Drawing.Point(18, 180);
+            this.dgvUsers.Size = new System.Drawing.Size(875, 385);
             // 
             // Form1
             // 
@@ -864,6 +900,7 @@ namespace LabMaintenanceApp
         public System.Windows.Forms.DataGridView dgvLabs;
         public System.Windows.Forms.Panel pnlLabCard;
         public System.Windows.Forms.Button btnLabDelete;
+        public System.Windows.Forms.Button btnLabUpdate;
         public System.Windows.Forms.Button btnLabAdd;
         public System.Windows.Forms.TextBox txtLabLocation;
         public System.Windows.Forms.Label lblLabLoc;
@@ -910,6 +947,7 @@ namespace LabMaintenanceApp
         public System.Windows.Forms.DataGridView dgvUsers;
         public System.Windows.Forms.Panel pnlUserCard;
         public System.Windows.Forms.Button btnUserDelete;
+        public System.Windows.Forms.Button btnUserUpdate;
         public System.Windows.Forms.Button btnUserAdd;
         public System.Windows.Forms.ComboBox cboNewRole;
         public System.Windows.Forms.Label lblUserRole;

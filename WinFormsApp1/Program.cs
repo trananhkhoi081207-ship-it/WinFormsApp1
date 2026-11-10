@@ -18,7 +18,13 @@ namespace LabMaintenanceApp
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
-            DatabaseHelper.InitializeDatabase();
+            try { DatabaseHelper.InitializeDatabase(); }
+            catch (Exception ex) when (ex is SQLiteException || ex is IOException || ex is UnauthorizedAccessException)
+            {
+                MessageBox.Show($"Không thể mở CSDL tại:\n{DatabaseHelper.DatabasePath}\n\nHãy đặt ứng dụng trong thư mục có quyền ghi.\n{ex.Message}",
+                    "Không thể khởi động", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
 
             while (true)
             {
@@ -58,10 +64,10 @@ namespace LabMaintenanceApp
 
             Label lblTitle = new Label { Text = "🧪 LABCARE PRO", Font = new Font("Segoe UI", 15, FontStyle.Bold), ForeColor = Color.FromArgb(37, 99, 235), AutoSize = true, Location = new Point(90, 18) };
             Label lblU = new Label { Text = "Tài khoản:", Font = new Font("Segoe UI Semibold", 9.5f), Location = new Point(30, 68), AutoSize = true };
-            txtUser = new TextBox { Location = new Point(120, 65), Width = 195, Font = new Font("Segoe UI", 10f) };
+            txtUser = new TextBox { Location = new Point(120, 65), Width = 195, Font = new Font("Segoe UI", 10f), MaxLength = InputLimits.Username };
 
             Label lblP = new Label { Text = "Mật khẩu:", Font = new Font("Segoe UI Semibold", 9.5f), Location = new Point(30, 108), AutoSize = true };
-            txtPass = new TextBox { Location = new Point(120, 105), Width = 195, Font = new Font("Segoe UI", 10f), PasswordChar = '●' };
+            txtPass = new TextBox { Location = new Point(120, 105), Width = 195, Font = new Font("Segoe UI", 10f), PasswordChar = '●', MaxLength = InputLimits.Password };
 
             Button btnLogin = new Button { Text = "ĐĂNG NHẬP HỆ THỐNG", Location = new Point(30, 150), Size = new Size(285, 38), BackColor = Color.FromArgb(59, 130, 246), ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI Semibold", 10f, FontStyle.Bold), Cursor = Cursors.Hand };
             btnLogin.FlatAppearance.BorderSize = 0;
@@ -80,7 +86,7 @@ namespace LabMaintenanceApp
                 else MessageBox.Show("Sai tài khoản hoặc mật khẩu!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             };
 
-            Label lblHint = new Label { Text = "TK mẫu: admin / ql_lab1 / ktv_01 (MK: 123456)", ForeColor = Color.Gray, Font = new Font("Segoe UI", 8.5f), Location = new Point(45, 198), AutoSize = true };
+            Label lblHint = new Label { Text = "Nhập tài khoản được cấp để đăng nhập.", ForeColor = Color.Gray, Font = new Font("Segoe UI", 8.5f), Location = new Point(45, 198), AutoSize = true };
 
             card.Controls.AddRange(new Control[] { lblTitle, lblU, txtUser, lblP, txtPass, btnLogin, lblHint });
             this.Controls.Add(card);
@@ -90,12 +96,23 @@ namespace LabMaintenanceApp
 
     public static class DatabaseHelper
     {
-        private static readonly string dbFile = "LabMaintenance.db";
-        public static readonly string ConnectionString = $"Data Source={dbFile};Version=3;Foreign Keys=True;";
+        public static string DatabasePath { get; }
+        public static readonly string ConnectionString;
+
+        static DatabaseHelper()
+        {
+            // Production always uses the EXE directory. The override isolates regression data.
+            DatabasePath = Path.GetFullPath(AppContext.GetData("LabCare.DatabasePath") as string
+                ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "LabMaintenance.db"));
+            ConnectionString = new SQLiteConnectionStringBuilder
+            {
+                DataSource = DatabasePath, Version = 3, ForeignKeys = true
+            }.ToString();
+        }
 
         public static void InitializeDatabase()
         {
-            if (!File.Exists(dbFile)) SQLiteConnection.CreateFile(dbFile);
+            if (!File.Exists(DatabasePath)) SQLiteConnection.CreateFile(DatabasePath);
             using (var conn = new SQLiteConnection(ConnectionString))
             {
                 conn.Open();
@@ -134,11 +151,17 @@ namespace LabMaintenanceApp
                     if ((long)checkCmd.ExecuteScalar() == 0)
                     {
                         string seed = @"
-                        INSERT INTO Users (Username, PasswordHash, FullName, Role) VALUES ('admin', '123456', 'Quản trị hệ thống', 'Admin'), ('ql_lab1', '123456', 'Nguyễn Văn Quản Lý', 'LabManager'), ('ktv_01', '123456', 'Trần Kỹ Thuật', 'Technician');
+                        INSERT INTO Users (Username, PasswordHash, FullName, Role) VALUES ('admin', @adminPassword, 'Quản trị hệ thống', 'Admin'), ('ql_lab1', @managerPassword, 'Nguyễn Văn Quản Lý', 'LabManager'), ('ktv_01', @technicianPassword, 'Trần Kỹ Thuật', 'Technician');
                         INSERT INTO Labs (LabCode, LabName, Location) VALUES ('LAB-01', 'Phòng Thí Nghiệm Hóa Sinh', 'Tòa A - Tầng 2'), ('LAB-02', 'Phòng Viễn Thông & Điện Tử', 'Tòa B - Tầng 3');
                         INSERT INTO Equipments (EquipmentCode, EquipmentName, Category, LabID, Status) VALUES ('EQ-001', 'Kính hiển vi quang học Olympus', 'Quang học', 1, 'Tốt'), ('EQ-002', 'Máy ly tâm tốc độ cao', 'Hóa sinh', 1, 'Đang bảo trì'), ('EQ-003', 'Máy hiện sóng số Rigol', 'Đo lường', 2, 'Tốt');
                         INSERT INTO MaintenanceRequests (EquipmentID, RequestedBy, RequestDate, IssueDescription, Priority, Status) VALUES (2, 2, '2026-05-01 09:00', 'Kêu to khi quay trên 3000 vòng/phút', 'Khẩn cấp', 'Chờ xử lý');";
-                        using (var seedCmd = new SQLiteCommand(seed, conn)) seedCmd.ExecuteNonQuery();
+                        using (var seedCmd = new SQLiteCommand(seed, conn))
+                        {
+                            seedCmd.Parameters.AddWithValue("@adminPassword", PasswordHasher.Hash("123456"));
+                            seedCmd.Parameters.AddWithValue("@managerPassword", PasswordHasher.Hash("123456"));
+                            seedCmd.Parameters.AddWithValue("@technicianPassword", PasswordHasher.Hash("123456"));
+                            seedCmd.ExecuteNonQuery();
+                        }
                     }
                 }
                 // Nâng cấp mật khẩu cũ tại chỗ; không thay đổi mật khẩu người dùng nhập.

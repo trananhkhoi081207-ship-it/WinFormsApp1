@@ -29,7 +29,7 @@ GitHub Actions cũng tự build, kiểm tra và đóng gói Windows x64. Trong t
 
 1. Đăng nhập Admin, giới thiệu thiết bị, phòng lab và ba vai trò.
 2. Chọn máy hiện sóng ở LAB-02, sửa tên; chọn lại để kiểm tra máy vẫn ở LAB-02.
-3. Tạo phiếu cho thiết bị đang rảnh, nhập sự cố, chọn ưu tiên và kỹ thuật viên `ktv_01`.
+3. Trong tab Phòng Lab, chọn một phòng và sửa vị trí. Trong tab Người dùng, chọn tài khoản thử nghiệm, sửa họ tên với ô mật khẩu trống để giữ mật khẩu; nhập mật khẩu mới nếu muốn đặt lại. Sau đó tạo phiếu cho thiết bị đang rảnh, nhập sự cố, chọn ưu tiên và kỹ thuật viên `ktv_01`.
 4. Đăng xuất, đăng nhập `ql_lab1`: có thể tạo/phân công phiếu, không được hoàn tất sửa chữa hay quản lý người dùng.
 5. Đăng xuất, đăng nhập `ktv_01`: chọn phiếu được giao, nhập kết quả và chi phí `1.950.000`, chọn tình trạng sau sửa rồi hoàn tất.
 6. Xem lịch sử và thống kê: kết quả, người thực hiện, chi phí, trạng thái thiết bị đã cập nhật.
@@ -37,14 +37,18 @@ GitHub Actions cũng tự build, kiểm tra và đóng gói Windows x64. Trong t
 
 ## Dữ liệu và sao lưu
 
-`LabMaintenance.db` được tạo trong thư mục làm việc khi chạy ứng dụng. Luôn chạy từ cùng thư mục để dùng đúng CSDL. Trước khi nâng cấp hoặc sao lưu, thoát ứng dụng rồi sao chép file này sang thư mục riêng. Không cần xóa CSDL cũ khi cập nhật bản sửa.
+`LabMaintenance.db` nằm cạnh EXE, không thay đổi khi chạy từ shortcut có thư mục **Start in** khác. Khi chạy bằng `dotnet run`, DB nằm trong `WinFormsApp1/bin/Debug/net10.0-windows/`; nếu dùng `-c Release`, DB nằm trong thư mục Release tương ứng. Bản publish dùng DB trong thư mục publish. Thư mục chứa EXE cần có quyền ghi.
+
+Nâng cấp từ bản cũ: thoát ứng dụng, sao lưu DB đang sử dụng rồi chép DB đó vào cạnh EXE mới trước lần chạy đầu. Nếu đã có DB ở đích, sao lưu cả hai và xác định bản cần giữ trước khi thay thế. Bản mới không tự nhập DB từ thư mục làm việc để tránh chọn nhầm dữ liệu. Không cần xóa dữ liệu để nâng cấp cấu trúc CSDL.
+
+Để sao lưu, thoát ứng dụng rồi sao chép `LabMaintenance.db` cạnh EXE sang thư mục riêng.
 
 Bản đóng gói không kèm dữ liệu cá nhân. Để demo từ đầu, dùng một thư mục giải nén mới chưa có `LabMaintenance.db`. Không xóa CSDL thật để làm mới demo.
 
 ## Kiểm tra trước khi nộp
 
 ```powershell
-dotnet build WinFormsApp1/WinFormsApp1.csproj -c Release
+dotnet build WinFormsApp1.slnx -c Release
 dotnet run --project tests/LabCare.RegressionTests/LabCare.RegressionTests.csproj -c Release
 ```
 
