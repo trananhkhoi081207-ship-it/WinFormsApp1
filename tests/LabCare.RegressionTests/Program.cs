@@ -263,6 +263,11 @@ internal static class RegressionTests
     {
         using var form = new Form1(1, "Admin", "Admin");
         form.Show();
+        // Hosted Windows runners can have a 1024x768 desktop. Start below its
+        // working area so Windows does not clamp the requested larger size.
+        var workingArea = Screen.FromControl(form).WorkingArea;
+        form.ClientSize = new System.Drawing.Size(workingArea.Width - 250, workingArea.Height - 250);
+        Application.DoEvents();
         var pages = new[] {
             (form.tabEquipments, form.pnlEqCard, form.dgvEquipments),
             (form.tabLabs, form.pnlLabCard, form.dgvLabs),
@@ -278,18 +283,18 @@ internal static class RegressionTests
             var initialPageSize = page.ClientSize;
             var initialGridSize = grid.Size;
             int initialCardWidth = card.Width;
-            form.ClientSize = new System.Drawing.Size(initialSize.Width + 300, initialSize.Height + 120);
+            form.ClientSize = new System.Drawing.Size(initialSize.Width + 150, initialSize.Height + 100);
             Application.DoEvents();
             int addedWidth = page.ClientSize.Width - initialPageSize.Width;
             int addedHeight = page.ClientSize.Height - initialPageSize.Height;
             Check(addedWidth > 0 && addedHeight > 0 && card.Width == initialCardWidth + addedWidth
                 && grid.Width == initialGridSize.Width + addedWidth && grid.Height == initialGridSize.Height + addedHeight,
-                $"Form and grid fill the larger window on {page.Text}");
+                $"Form and grid fill the larger window on {page.Text} (delta {addedWidth}x{addedHeight}, card {card.Width - initialCardWidth}, grid {grid.Width - initialGridSize.Width}x{grid.Height - initialGridSize.Height})");
             form.ClientSize = initialSize;
         }
 
         form.tabMain.SelectedTab = form.tabStats;
-        form.ClientSize = new System.Drawing.Size(initialSize.Width + 300, initialSize.Height + 120);
+        form.ClientSize = new System.Drawing.Size(initialSize.Width + 150, initialSize.Height + 100);
         int rightEdge = form.tabStats.ClientSize.Width - form.pnlCardTotalEq.Left;
         Check(form.pnlCardCost.Right == rightEdge && form.dgvStatsLab.Right == rightEdge
             && form.dgvStatsStatus.Right < form.dgvStatsLab.Left,
