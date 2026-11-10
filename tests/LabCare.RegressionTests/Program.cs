@@ -6,20 +6,31 @@ internal static class RegressionTests
     private static int checks;
 
     [STAThread]
-    private static int Main()
+    private static int Main(string[] args)
     {
+        if (args.SequenceEqual(new[] { "--database-path" }))
+        {
+            Console.WriteLine(DatabaseHelper.DatabasePath);
+            return 0;
+        }
         string previousDirectory = Environment.CurrentDirectory;
         string directory = Path.Combine(Path.GetTempPath(), "LabCare-tests-" + Guid.NewGuid());
         Directory.CreateDirectory(directory);
+        AppContext.SetData("LabCare.DatabasePath", Path.Combine(directory, "LabMaintenance.db"));
         Environment.CurrentDirectory = directory;
         try
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             TestMigration();
+            TestDatabaseLocation();
+            TestPasswords();
             TestAssignmentAndCompletion();
             TestSafetyAndMoney();
             TestRoleScreensAndLogout();
+            TestAdministration();
+            TestInputAndEditScreens();
+            TestEquipmentEditingAndStatistics();
             TestHistoryScaling();
             TestWideWindowLayout();
             Console.WriteLine($"PASS: {checks} regression checks");
@@ -63,6 +74,58 @@ internal static class RegressionTests
         Check(Scalar("SELECT COUNT(*) FROM pragma_table_info('MaintenanceLogs') WHERE name='EquipmentStatusAfter'") == 1, "Old history gains a nullable repair outcome");
         Throws<SQLiteException>(() => DatabaseHelper.ExecuteNonQuery("INSERT INTO Equipments (EquipmentCode, EquipmentName, LabID) VALUES ('ORPHAN', 'Orphan', 9999)"));
         Throws<SQLiteException>(() => DatabaseHelper.ExecuteNonQuery("UPDATE Equipments SET LabID=9999 WHERE EquipmentID=1"));
+    }
+
+    private static void TestDatabaseLocation()
+    {
+        string databasePath = DatabaseHelper.DatabasePath;
+        long users = Scalar("SELECT COUNT(*) FROM Users");
+        string original = Environment.CurrentDirectory;
+        string shortcutDirectory = Path.Combine(original, "shortcut-start-in");
+        Directory.CreateDirectory(shortcutDirectory);
+        try
+        {
+            Environment.CurrentDirectory = shortcutDirectory;
+            DatabaseHelper.InitializeDatabase();
+            Check(Path.IsPathFullyQualified(databasePath) && DatabaseHelper.DatabasePath == databasePath,
+                "Database uses an absolute path unaffected by shortcut working directory");
+            Check(Scalar("SELECT COUNT(*) FROM Users") == users && !File.Exists("LabMaintenance.db"),
+                "Changing working directory preserves data without creating a second database");
+            using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = Environment.ProcessPath!, Arguments = "--database-path", UseShellExecute = false,
+                RedirectStandardOutput = true, RedirectStandardError = true
+            })!;
+            string defaultPath = process.StandardOutput.ReadToEnd().Trim();
+            Check(process.WaitForExit(10_000) && process.ExitCode == 0
+                && defaultPath == Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "LabMaintenance.db"),
+                "Fresh process defaults to the EXE directory even from a different working directory");
+        }
+        finally { Environment.CurrentDirectory = original; }
+    }
+
+    private static void TestPasswords()
+    {
+        string stored = DatabaseHelper.GetDataTable("SELECT PasswordHash FROM Users WHERE UserID=1").Rows[0][0].ToString()!;
+        Check(stored != "123456" && PasswordHasher.Verify("123456", stored), "Sample passwords are hashed and remain usable");
+        Check(!PasswordHasher.Verify("incorrect", stored), "Wrong password is rejected");
+        Check(!PasswordHasher.Verify("123456", "123456"), "Login does not accept plaintext storage");
+        Check(!PasswordHasher.Verify("123456", "pbkdf2-sha256$600000$bad$bad"), "Malformed hashes are rejected");
+        string spaced = PasswordHasher.Hash(" password ");
+        Check(PasswordHasher.Verify(" password ", spaced) && !PasswordHasher.Verify("password", spaced), "Password whitespace is preserved");
+        Check(PasswordHasher.Hash("123456") != stored, "Each password has a random salt");
+        DatabaseHelper.ExecuteNonQuery("INSERT INTO Users (Username, PasswordHash, FullName, Role) VALUES ('legacy-login', 'old-password', 'Legacy', 'Technician')");
+        DatabaseHelper.InitializeDatabase();
+        Check(PasswordHasher.Verify("old-password", DatabaseHelper.GetDataTable("SELECT PasswordHash FROM Users WHERE Username='legacy-login'").Rows[0][0].ToString()!), "Existing plaintext password migrates without a reset");
+        Check(stored == DatabaseHelper.GetDataTable("SELECT PasswordHash FROM Users WHERE UserID=1").Rows[0][0].ToString(), "Repeated migration preserves existing hashes");
+        DatabaseHelper.ExecuteNonQuery("DELETE FROM Users WHERE Username='legacy-login'");
+        using var login = new FrmLogin();
+        var inputs = login.Controls.OfType<Panel>().Single().Controls.OfType<TextBox>().ToArray();
+        Check(inputs.All(input => input.Text == ""), "Login does not prefill credentials");
+        inputs.Single(input => input.PasswordChar == '\0').Text = "admin";
+        inputs.Single(input => input.PasswordChar != '\0').Text = "123456";
+        login.Shown += (_, _) => login.BeginInvoke(new Action(() => login.AcceptButton!.PerformClick()));
+        Check(login.ShowDialog() == DialogResult.OK && login.LoggedInUserId == 1, "Hashed sample account can sign in through the login screen");
     }
 
     private static void TestAssignmentAndCompletion()
@@ -138,6 +201,9 @@ internal static class RegressionTests
         MaintenanceService.CreateRequest(3, 3, "Second pending repair", "Thấp", 3);
         Throws<SQLiteException>(() => DatabaseHelper.ExecuteNonQuery("INSERT INTO MaintenanceRequests (EquipmentID, RequestedBy, RequestDate, IssueDescription) VALUES (2, 3, '2026-01-01', 'Duplicate')"));
         Throws<SQLiteException>(() => DatabaseHelper.ExecuteNonQuery("UPDATE Equipments SET Status='Thanh lý' WHERE EquipmentID=2"));
+        Throws<SQLiteException>(() => DatabaseHelper.ExecuteNonQuery("UPDATE Equipments SET Status='Tốt' WHERE EquipmentID=2"));
+        Throws<SQLiteException>(() => DatabaseHelper.ExecuteNonQuery("UPDATE Equipments SET Status='Hỏng' WHERE EquipmentID=2"));
+        Check(Scalar("SELECT COUNT(*) FROM Equipments WHERE EquipmentID=2 AND Status='Đang bảo trì'") == 1, "Open repair preserves maintenance status");
         foreach (double value in new[] { double.NaN, double.PositiveInfinity, 1.5, VndMoney.MaxExactValue + 1 })
             Throws<ArgumentException>(() => MaintenanceService.CompleteRequest(3, (int)Scalar("SELECT MAX(RequestID) FROM MaintenanceRequests"), "Invalid cost", value));
     }
@@ -151,6 +217,7 @@ internal static class RegressionTests
             Application.DoEvents();
             Check(form.tabMain.TabPages.Count == count, role + " has the expected tab count");
             Check(form.tabMain.TabPages.Contains(form.tabUsers) == (role == "Admin"), role + " users tab access");
+            Check(form.btnUserUpdate.Enabled == (role == "Admin") && form.btnLabUpdate.Enabled == (role != "Technician"), role + " update button permissions");
             Check(form.dgvEquipments.ReadOnly, role + " equipment grid is read-only");
             Check(form.dgvUsers.DataSource != null == (role == "Admin"), role + " users list is loaded only for admin");
             if (role == "Technician")
@@ -234,6 +301,11 @@ internal static class RegressionTests
     {
         using var form = new Form1(1, "Admin", "Admin");
         form.Show();
+        // Hosted Windows runners can have a 1024x768 desktop. Start below its
+        // working area so Windows does not clamp the requested larger size.
+        var workingArea = Screen.FromControl(form).WorkingArea;
+        form.ClientSize = new System.Drawing.Size(workingArea.Width - 250, workingArea.Height - 250);
+        Application.DoEvents();
         var pages = new[] {
             (form.tabEquipments, form.pnlEqCard, form.dgvEquipments),
             (form.tabLabs, form.pnlLabCard, form.dgvLabs),
@@ -249,22 +321,144 @@ internal static class RegressionTests
             var initialPageSize = page.ClientSize;
             var initialGridSize = grid.Size;
             int initialCardWidth = card.Width;
-            form.ClientSize = new System.Drawing.Size(initialSize.Width + 300, initialSize.Height + 120);
+            form.ClientSize = new System.Drawing.Size(initialSize.Width + 150, initialSize.Height + 100);
             Application.DoEvents();
             int addedWidth = page.ClientSize.Width - initialPageSize.Width;
             int addedHeight = page.ClientSize.Height - initialPageSize.Height;
             Check(addedWidth > 0 && addedHeight > 0 && card.Width == initialCardWidth + addedWidth
                 && grid.Width == initialGridSize.Width + addedWidth && grid.Height == initialGridSize.Height + addedHeight,
-                $"Form and grid fill the larger window on {page.Text}");
+                $"Form and grid fill the larger window on {page.Text} (delta {addedWidth}x{addedHeight}, card {card.Width - initialCardWidth}, grid {grid.Width - initialGridSize.Width}x{grid.Height - initialGridSize.Height})");
             form.ClientSize = initialSize;
         }
 
         form.tabMain.SelectedTab = form.tabStats;
-        form.ClientSize = new System.Drawing.Size(initialSize.Width + 300, initialSize.Height + 120);
+        form.ClientSize = new System.Drawing.Size(initialSize.Width + 150, initialSize.Height + 100);
         int rightEdge = form.tabStats.ClientSize.Width - form.pnlCardTotalEq.Left;
         Check(form.pnlCardCost.Right == rightEdge && form.dgvStatsLab.Right == rightEdge
             && form.dgvStatsStatus.Right < form.dgvStatsLab.Left,
             "Statistics cards and grids fill the available width without overlap");
+    }
+
+    private static void TestAdministration()
+    {
+        string labName = DatabaseHelper.GetDataTable("SELECT LabName FROM Labs WHERE LabID=2").Rows[0][0].ToString()!;
+        long labDevices = Scalar("SELECT COUNT(*) FROM Equipments WHERE LabID=2");
+        AdministrationService.UpdateLab(2, 2, "LAB-02", "Tên Lab mới", "Tầng 4");
+        Check(DatabaseHelper.GetDataTable("SELECT LabName FROM Labs WHERE LabID=2").Rows[0][0].ToString() == "Tên Lab mới"
+            && Scalar("SELECT COUNT(*) FROM Equipments WHERE LabID=2") == labDevices, "Manager edits lab details without changing equipment relations");
+        Throws<UnauthorizedAccessException>(() => AdministrationService.UpdateLab(3, 2, "LAB-02", "Forbidden", ""));
+        Throws<SQLiteException>(() => AdministrationService.UpdateLab(1, 2, "LAB-01", "Duplicate", ""));
+        Throws<ArgumentException>(() => AdministrationService.UpdateLab(1, 2, "", "Empty code", ""));
+        Throws<ArgumentException>(() => AdministrationService.UpdateLab(1, 2, "LAB-02", new string('x', InputLimits.Name + 1), ""));
+        AdministrationService.UpdateLab(1, 2, "LAB-02", labName, "Tòa B - Tầng 3");
+
+        Throws<UnauthorizedAccessException>(() => AdministrationService.CreateUser(2, "forbidden", "password", "Forbidden", "Technician"));
+        Throws<ArgumentException>(() => AdministrationService.CreateUser(1, "empty-pass", "", "Empty", "Technician"));
+        Throws<ArgumentException>(() => AdministrationService.CreateUser(1, "bad-role", "password", "Bad", "SuperAdmin"));
+        Throws<ArgumentException>(() => AdministrationService.CreateUser(1, "long-pass", new string('x', InputLimits.Password + 1), "Long", "Technician"));
+        AdministrationService.CreateUser(1, "service-edit", "first-password", "Before", "LabManager");
+        int id = (int)Scalar("SELECT UserID FROM Users WHERE Username='service-edit'");
+        string hash = DatabaseHelper.GetDataTable($"SELECT PasswordHash FROM Users WHERE UserID={id}").Rows[0][0].ToString()!;
+        Check(PasswordHasher.Verify("first-password", hash), "New accounts store a usable password hash");
+        AdministrationService.UpdateUser(1, id, "service-edited", "", "After", "Technician");
+        Check(hash == DatabaseHelper.GetDataTable($"SELECT PasswordHash FROM Users WHERE UserID={id}").Rows[0][0].ToString()
+            && Scalar($"SELECT COUNT(*) FROM Users WHERE UserID={id} AND Username='service-edited' AND FullName='After' AND Role='Technician'") == 1,
+            "User edit updates name, username and role while empty password preserves the hash");
+        AdministrationService.UpdateUser(1, id, "service-edited", " new-password ", "After", "Technician");
+        string newHash = DatabaseHelper.GetDataTable($"SELECT PasswordHash FROM Users WHERE UserID={id}").Rows[0][0].ToString()!;
+        Check(PasswordHasher.Verify(" new-password ", newHash) && !PasswordHasher.Verify("first-password", newHash), "Password reset stores a new hash and preserves spaces");
+        Throws<UnauthorizedAccessException>(() => AdministrationService.UpdateUser(2, id, "service-edited", "", "Forbidden", "Technician"));
+        Throws<InvalidOperationException>(() => AdministrationService.UpdateUser(1, 1, "admin", "", "Admin", "Technician"));
+        Throws<InvalidOperationException>(() => AdministrationService.UpdateUser(1, 3, "ktv_01", "", "Tech", "LabManager"));
+        Throws<SQLiteException>(() => AdministrationService.UpdateUser(1, id, "admin", "not-saved", "Duplicate", "Admin"));
+        Check(newHash == DatabaseHelper.GetDataTable($"SELECT PasswordHash FROM Users WHERE UserID={id}").Rows[0][0].ToString(),
+            "Failed duplicate-username edit preserves the original password hash");
+        AdministrationService.CreateUser(1, "second-admin", "password", "Second admin", "Admin");
+        int secondAdmin = (int)Scalar("SELECT UserID FROM Users WHERE Username='second-admin'");
+        Throws<InvalidOperationException>(() => AdministrationService.UpdateUser(secondAdmin, secondAdmin, "second-admin", "", "Second admin", "Technician"));
+        DatabaseHelper.ExecuteNonQuery($"DELETE FROM Users WHERE UserID IN ({id}, {secondAdmin})");
+    }
+
+    private static void TestInputAndEditScreens()
+    {
+        using var form = new Form1(1, "Admin", "Admin");
+        form.Show();
+        Application.DoEvents();
+        var limits = new[] {
+            (form.txtEqCode, InputLimits.Code), (form.txtEqName, InputLimits.Name), (form.txtEqCategory, InputLimits.Category),
+            (form.txtLabCode, InputLimits.Code), (form.txtLabName, InputLimits.Name), (form.txtLabLocation, InputLimits.Location),
+            (form.txtReqIssue, InputLimits.Description), (form.txtLogAction, InputLimits.Description), (form.txtLogCost, InputLimits.Money),
+            (form.txtNewUser, InputLimits.Username), (form.txtNewPass, InputLimits.Password), (form.txtNewFullName, InputLimits.Name)
+        };
+        Check(limits.All(pair => pair.Item1.MaxLength == pair.Item2), "All main-screen textboxes have the intended length limits");
+        using var login = new FrmLogin();
+        var inputs = login.Controls.OfType<Panel>().Single().Controls.OfType<TextBox>().ToArray();
+        Check(inputs.All(input => input.MaxLength == (input.PasswordChar == '\0' ? InputLimits.Username : InputLimits.Password)), "Login input lengths match account creation limits");
+        Check(form.txtNewPass.PasswordChar != '\0', "User management masks passwords");
+        form.tabMain.SelectedTab = form.tabLabs;
+        var labRow = form.dgvLabs.Rows.Cast<DataGridViewRow>().Single(row => Convert.ToInt32(row.Cells["LabID"].Value) == 2);
+        form.dgvLabs.CurrentCell = labRow.Cells["Tên Phòng Lab"];
+        Check(form.txtLabCode.Text == "LAB-02", "Selecting a lab loads its editable fields");
+        string labName = form.txtLabName.Text;
+        form.txtLabName.Text = "Lab cập nhật từ UI";
+        form.btnLabUpdate.PerformClick();
+        Check(DatabaseHelper.GetDataTable("SELECT LabName FROM Labs WHERE LabID=2").Rows[0][0].ToString() == "Lab cập nhật từ UI", "Lab update button saves the selected lab");
+        AdministrationService.UpdateLab(1, 2, "LAB-02", labName, "Tòa B - Tầng 3");
+
+        form.tabMain.SelectedTab = form.tabUsers;
+        // Create through the UI, then select and edit that new account.
+        form.txtNewUser.Text = "ui-edit";
+        form.txtNewPass.Text = "first-password";
+        form.txtNewFullName.Text = "UI before";
+        form.cboNewRole.Text = "Technician";
+        form.btnUserAdd.PerformClick();
+        int id = (int)Scalar("SELECT UserID FROM Users WHERE Username='ui-edit'");
+        void SelectUser(int userId)
+        {
+            var row = form.dgvUsers.Rows.Cast<DataGridViewRow>().Single(row => Convert.ToInt32(row.Cells["UserID"].Value) == userId);
+            form.dgvUsers.CurrentCell = row.Cells["Tài khoản"];
+        }
+        SelectUser(id);
+        Check(form.txtNewUser.Text == "ui-edit" && form.txtNewPass.Text == "", "Selecting a user loads fields but never its password");
+        string hash = DatabaseHelper.GetDataTable($"SELECT PasswordHash FROM Users WHERE UserID={id}").Rows[0][0].ToString()!;
+        form.txtNewFullName.Text = "UI after";
+        form.btnUserUpdate.PerformClick();
+        Check(hash == DatabaseHelper.GetDataTable($"SELECT PasswordHash FROM Users WHERE UserID={id}").Rows[0][0].ToString()
+            && Scalar($"SELECT COUNT(*) FROM Users WHERE UserID={id} AND FullName='UI after'") == 1, "UI user edit preserves the password when left empty");
+        SelectUser(id);
+        form.txtNewPass.Text = "reset-password";
+        form.btnUserUpdate.PerformClick();
+        Check(PasswordHasher.Verify("reset-password", DatabaseHelper.GetDataTable($"SELECT PasswordHash FROM Users WHERE UserID={id}").Rows[0][0].ToString()!), "UI password reset hashes the new password");
+        SelectUser(id);
+        form.txtNewPass.Text = "must-not-carry";
+        SelectUser(1);
+        Check(form.txtNewPass.Text == "", "Selecting another user clears an unsaved password");
+        foreach (var (card, grid, buttons) in new[] {
+            (form.pnlLabCard, form.dgvLabs, new[] { form.btnLabAdd, form.btnLabUpdate, form.btnLabDelete }),
+            (form.pnlUserCard, form.dgvUsers, new[] { form.btnUserAdd, form.btnUserUpdate, form.btnUserDelete })
+        })
+            Check(grid.Top > card.Bottom && buttons.All(button => card.ClientRectangle.Contains(button.Bounds))
+                && !buttons[0].Bounds.IntersectsWith(buttons[1].Bounds) && !buttons[1].Bounds.IntersectsWith(buttons[2].Bounds), "Edit buttons fit inside their card without covering the data grid");
+        DatabaseHelper.ExecuteNonQuery($"DELETE FROM Users WHERE UserID={id}");
+    }
+
+    private static void TestEquipmentEditingAndStatistics()
+    {
+        using var form = new Form1(1, "Admin", "Admin");
+        form.Show();
+        Application.DoEvents();
+        var row = form.dgvEquipments.Rows.Cast<DataGridViewRow>()
+            .Single(row => Convert.ToInt32(row.Cells["EquipmentID"].Value) == 3);
+        form.dgvEquipments.CurrentCell = row.Cells["Tên Thiết Bị"];
+        Check(Convert.ToInt32(form.cboEqLab.SelectedValue) == 2, "Selecting equipment selects its actual lab");
+        string name = form.txtEqName.Text;
+        form.txtEqName.Text = name + " updated";
+        form.btnEqUpdate.PerformClick();
+        Check(Scalar("SELECT LabID FROM Equipments WHERE EquipmentID=3") == 2, "Editing a name preserves equipment lab");
+        Check(DatabaseHelper.GetDataTable("SELECT EquipmentName FROM Equipments WHERE EquipmentID=3").Rows[0][0].ToString() == name + " updated", "Equipment edit is saved");
+        long expected = Scalar("SELECT COUNT(*) FROM Equipments WHERE Status IN ('Hỏng', 'Đang bảo trì')");
+        Check(form.lblCardBrokenVal.Text == $"{expected} Thiết bị", "Maintenance statistics exclude retired equipment");
+        Check(form.dgvEquipments.Columns["LabID"] is { Visible: false }, "Internal lab key is hidden");
     }
 
     private static HashSet<int> PendingIds(int userId) => MaintenanceService.GetPendingRequests(userId).Rows

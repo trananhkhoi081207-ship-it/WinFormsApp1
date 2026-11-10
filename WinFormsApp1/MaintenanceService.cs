@@ -26,7 +26,7 @@ namespace LabMaintenanceApp
 
         public static void CreateRequest(int userId, int equipmentId, string issue, string priority, int? assignedTechnicianId)
         {
-            if (string.IsNullOrWhiteSpace(issue)) throw new ArgumentException("Vui lòng nhập mô tả sự cố!");
+            issue = InputLimits.Required(issue, InputLimits.Description, "Mô tả sự cố");
             using (var conn = new SQLiteConnection(DatabaseHelper.ConnectionString))
             {
                 conn.Open();
@@ -77,7 +77,7 @@ namespace LabMaintenanceApp
 
         public static void CompleteRequest(int userId, int requestId, string action, double cost, string equipmentStatus = "Tốt")
         {
-            if (string.IsNullOrWhiteSpace(action)) throw new ArgumentException("Vui lòng nhập kết quả sửa chữa!");
+            action = InputLimits.Required(action, InputLimits.Description, "Kết quả sửa chữa");
             if (equipmentStatus != "Tốt" && equipmentStatus != "Hỏng") throw new ArgumentException("Vui lòng chọn tình trạng thiết bị sau bảo trì.");
             if (double.IsNaN(cost) || double.IsInfinity(cost) || cost < 0 || cost > VndMoney.MaxExactValue || Math.Truncate(cost) != cost) throw new ArgumentException("Chi phí phải là số nguyên không âm (VND).");
             using (var conn = new SQLiteConnection(DatabaseHelper.ConnectionString))

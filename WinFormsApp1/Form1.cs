@@ -81,8 +81,8 @@ namespace LabMaintenanceApp
             if (!canManageLabs) tabMain.TabPages.Remove(tabLabs);
             btnNavUsers.Visible = canManageUsers;
             btnNavLabs.Visible = canManageLabs;
-            btnUserAdd.Enabled = btnUserDelete.Enabled = canManageUsers;
-            btnLabAdd.Enabled = btnLabDelete.Enabled = canManageLabs;
+            btnUserAdd.Enabled = btnUserUpdate.Enabled = btnUserDelete.Enabled = canManageUsers;
+            btnLabAdd.Enabled = btnLabUpdate.Enabled = btnLabDelete.Enabled = canManageLabs;
             btnEqAdd.Enabled = btnEqUpdate.Enabled = btnEqDelete.Enabled = canManageEquipment;
             pnlEqCard.Visible = canManageEquipment;
             if (!canManageEquipment)
@@ -143,8 +143,8 @@ namespace LabMaintenanceApp
 
             Button[] actionButtons = {
                 btnNavEquipments, btnNavLabs, btnNavRequest, btnNavHistory, btnNavStats, btnNavUsers,
-                btnEqAdd, btnEqUpdate, btnEqDelete, btnLabAdd, btnLabDelete,
-                btnReqSubmit, btnHisComplete, btnUserAdd, btnUserDelete, btnLogout
+                btnEqAdd, btnEqUpdate, btnEqDelete, btnLabAdd, btnLabUpdate, btnLabDelete,
+                btnReqSubmit, btnHisComplete, btnUserAdd, btnUserUpdate, btnUserDelete, btnLogout
             };
             foreach (var btn in actionButtons)
             {
@@ -258,7 +258,8 @@ namespace LabMaintenanceApp
             };
 
             // Click vào dòng trên bảng Thiết bị -> Đổ dữ liệu lên ô nhập để Sửa/Xóa
-            dgvEquipments.SelectionChanged += (s, e) =>
+            // CurrentCellChanged fires after CurrentRow points to the new device.
+            dgvEquipments.CurrentCellChanged += (s, e) =>
             {
                 if (dgvEquipments.CurrentRow != null)
                 {
@@ -266,7 +267,25 @@ namespace LabMaintenanceApp
                     txtEqName.Text = dgvEquipments.CurrentRow.Cells["Tên Thiết Bị"].Value?.ToString();
                     txtEqCategory.Text = dgvEquipments.CurrentRow.Cells["Danh mục"].Value?.ToString();
                     cboEqStatus.Text = dgvEquipments.CurrentRow.Cells["Trạng thái"].Value?.ToString();
+                    if (RolePermissions.CanManageEquipment(currentUserRole) && dgvEquipments.CurrentRow.Cells["LabID"].Value is object labId)
+                        cboEqLab.SelectedValue = labId;
                 }
+            };
+
+            dgvLabs.CurrentCellChanged += (_, _) =>
+            {
+                if (dgvLabs.CurrentRow == null) return;
+                txtLabCode.Text = dgvLabs.CurrentRow.Cells["Mã Phòng"].Value?.ToString();
+                txtLabName.Text = dgvLabs.CurrentRow.Cells["Tên Phòng Lab"].Value?.ToString();
+                txtLabLocation.Text = dgvLabs.CurrentRow.Cells["Vị trí"].Value?.ToString();
+            };
+            dgvUsers.CurrentCellChanged += (_, _) =>
+            {
+                txtNewPass.Clear(); // Never carry a password from another selected account.
+                if (dgvUsers.CurrentRow == null) return;
+                txtNewUser.Text = dgvUsers.CurrentRow.Cells["Tài khoản"].Value?.ToString();
+                txtNewFullName.Text = dgvUsers.CurrentRow.Cells["Họ và tên"].Value?.ToString();
+                cboNewRole.Text = dgvUsers.CurrentRow.Cells["Vai trò"].Value?.ToString();
             };
 
             // 1. Thêm thiết bị
@@ -298,6 +317,11 @@ namespace LabMaintenanceApp
             {
                 if (!RequirePermission(RolePermissions.CanManageEquipment(currentUserRole))) return;
                 if (dgvEquipments.CurrentRow == null) return;
+                if (string.IsNullOrWhiteSpace(txtEqCode.Text) || string.IsNullOrWhiteSpace(txtEqName.Text) || cboEqLab.SelectedValue == null)
+                {
+                    MessageBox.Show("Vui lòng nhập đủ Mã, Tên thiết bị và Phòng Lab!", "Thông báo");
+                    return;
+                }
                 int id = Convert.ToInt32(dgvEquipments.CurrentRow.Cells["EquipmentID"].Value);
                 try {
                 DatabaseHelper.ExecuteNonQuery(
@@ -341,6 +365,19 @@ namespace LabMaintenanceApp
                     LoadAllData();
                 }
                 catch (Exception ex) { MessageBox.Show("Lỗi thêm phòng Lab: " + ex.Message); }
+            };
+
+            btnLabUpdate.Click += (_, _) =>
+            {
+                if (!RequirePermission(RolePermissions.CanManageLabs(currentUserRole))) return;
+                if (dgvLabs.CurrentRow == null) { MessageBox.Show("Vui lòng chọn phòng Lab cần sửa."); return; }
+                try
+                {
+                    AdministrationService.UpdateLab(currentUserId, Convert.ToInt32(dgvLabs.CurrentRow.Cells["LabID"].Value),
+                        txtLabCode.Text, txtLabName.Text, txtLabLocation.Text);
+                    LoadAllData();
+                }
+                catch (Exception ex) { MessageBox.Show("Không thể sửa phòng Lab: " + ex.Message); }
             };
 
             btnLabDelete.Click += (s, e) =>
@@ -402,23 +439,36 @@ namespace LabMaintenanceApp
                 catch (Exception ex) { MessageBox.Show(ex.Message, "Không thể hoàn tất phiếu", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
             };
 
-            // 7. Thêm & Xóa Người dùng
-            btnUserAdd.Click += (s, e) =>
+            // 7. Thêm, sửa và xóa người dùng
+            btnUserAdd.Click += (_, _) =>
             {
                 if (!RequirePermission(RolePermissions.CanManageUsers(currentUserRole))) return;
-                if (string.IsNullOrWhiteSpace(txtNewUser.Text) || string.IsNullOrWhiteSpace(txtNewPass.Text)) return;
                 try
                 {
-                    DatabaseHelper.ExecuteNonQuery(
-                        "INSERT INTO Users (Username, PasswordHash, FullName, Role) VALUES (@u, @p, @f, @r)",
-                        new SQLiteParameter("@u", txtNewUser.Text.Trim()),
-                        new SQLiteParameter("@p", txtNewPass.Text.Trim()),
-                        new SQLiteParameter("@f", txtNewFullName.Text.Trim()),
-                        new SQLiteParameter("@r", cboNewRole.Text));
-                    txtNewUser.Clear(); txtNewPass.Clear(); txtNewFullName.Clear();
+                    AdministrationService.CreateUser(currentUserId, txtNewUser.Text, txtNewPass.Text, txtNewFullName.Text, cboNewRole.Text);
+                    txtNewPass.Clear();
                     LoadAllData();
                 }
                 catch (Exception ex) { MessageBox.Show("Lỗi tạo tài khoản: " + ex.Message); }
+            };
+
+            btnUserUpdate.Click += (_, _) =>
+            {
+                if (!RequirePermission(RolePermissions.CanManageUsers(currentUserRole))) return;
+                if (dgvUsers.CurrentRow == null) { MessageBox.Show("Vui lòng chọn người dùng cần sửa."); return; }
+                try
+                {
+                    int id = Convert.ToInt32(dgvUsers.CurrentRow.Cells["UserID"].Value);
+                    AdministrationService.UpdateUser(currentUserId, id, txtNewUser.Text, txtNewPass.Text, txtNewFullName.Text, cboNewRole.Text);
+                    if (id == currentUserId)
+                    {
+                        currentUserName = txtNewFullName.Text.Trim();
+                        lblUserInfo.Text = $"👤 {currentUserName}\r\n🔑 Vai trò: {currentUserRole}";
+                    }
+                    txtNewPass.Clear();
+                    LoadAllData();
+                }
+                catch (Exception ex) { MessageBox.Show("Không thể sửa người dùng: " + ex.Message); }
             };
 
             btnUserDelete.Click += (s, e) =>
@@ -457,10 +507,11 @@ namespace LabMaintenanceApp
             btnReqSubmit.Enabled = RolePermissions.CanCreateRequest(currentUserRole);
 
             var dtEq = DatabaseHelper.GetDataTable(@"
-                SELECT e.EquipmentID, e.EquipmentCode AS 'Mã TB', e.EquipmentName AS 'Tên Thiết Bị',
+                SELECT e.EquipmentID, e.LabID, e.EquipmentCode AS 'Mã TB', e.EquipmentName AS 'Tên Thiết Bị',
                        e.Category AS 'Danh mục', l.LabName AS 'Phòng Lab', e.Status AS 'Trạng thái'
                 FROM Equipments e LEFT JOIN Labs l ON e.LabID = l.LabID");
             dgvEquipments.DataSource = dtEq;
+            if (dgvEquipments.Columns["LabID"] is DataGridViewColumn labColumn) labColumn.Visible = false;
             cboReqEquipment.DisplayMember = "Tên Thiết Bị";
             cboReqEquipment.ValueMember = "EquipmentID";
             cboReqEquipment.DataSource = DatabaseHelper.GetDataTable(@"
@@ -502,7 +553,7 @@ namespace LabMaintenanceApp
             dgvStatsLab.DataSource = DatabaseHelper.GetDataTable("SELECT l.LabName AS 'Phòng Lab', COUNT(e.EquipmentID) AS 'Số thiết bị' FROM Labs l LEFT JOIN Equipments e ON l.LabID = e.LabID GROUP BY l.LabName");
 
             long totalEq = Convert.ToInt64(DatabaseHelper.GetDataTable("SELECT COUNT(*) FROM Equipments").Rows[0][0]);
-            long brokenEq = Convert.ToInt64(DatabaseHelper.GetDataTable("SELECT COUNT(*) FROM Equipments WHERE Status != 'Tốt'").Rows[0][0]);
+            long brokenEq = Convert.ToInt64(DatabaseHelper.GetDataTable("SELECT COUNT(*) FROM Equipments WHERE Status IN ('Hỏng', 'Đang bảo trì')").Rows[0][0]);
             double totalCost = Convert.ToDouble(DatabaseHelper.GetDataTable("SELECT IFNULL(SUM(Cost), 0) FROM MaintenanceLogs").Rows[0][0]);
 
             lblCardTotalVal.Text = $"{totalEq} Thiết bị";
